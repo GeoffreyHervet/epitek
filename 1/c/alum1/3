@@ -1,0 +1,58 @@
+/*
+** play_computer.c for src in /afs/epitech.net/users/epitech_2015/hervet_g/rendu/c/alum1/src
+** 
+** Made by geoffrey hervet
+** Login   <hervet_g@epitech.net>
+** 
+** Started on  Sat Feb 12 16:06:09 2011 geoffrey hervet
+** Last update Sat Feb 12 16:06:09 2011 geoffrey hervet
+*/
+
+#include	<stdlib.h>
+#include	<stdio.h>
+#include	<curses.h>
+#include	<term.h>
+
+
+
+#include	<unistd.h>
+
+
+
+#include	"alum1.h"
+
+#include	"aff_map.h"
+#include	"play_computer.h"
+#include	"putcap.h"
+
+static int	*what_play(unsigned int *floors,
+			  int *ret)
+{
+  int		idx;
+
+  idx = 0;
+  ret[0] = 0;
+  ret[1] = 0;
+  while (idx != NB_FLOORS)
+  {
+    ret[0] ^= floors[idx];
+    if (floors[ret[1]] >= floors[idx])
+      ret[1] = idx;
+    idx++;
+  }
+  return (ret);
+}
+
+void		play_computer(t_game *game)
+{
+  int		*playing;
+
+  if ((playing = malloc(sizeof(*playing) * 2)) == NULL)
+    return (0);
+
+  (int *)playing = what_play(game->floors, (int *)playing);
+}
+
+/*
+ * src/play_computer.c:38: error: subscripted value is neither array nor pointer
+ */

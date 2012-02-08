@@ -1,0 +1,138 @@
+/*
+** play_computer.c for src in /afs/epitech.net/users/epitech_2015/hervet_g/rendu/c/alum1/src
+** 
+** Made by geoffrey hervet
+** Login   <hervet_g@epitech.net>
+** 
+** Started on  Sat Feb 12 16:06:09 2011 geoffrey hervet
+** Last update Sat Feb 12 16:06:09 2011 geoffrey hervet
+*/
+
+#include	<stdlib.h>
+#include	<stdio.h>
+#include	<curses.h>
+#include	<term.h>
+
+
+
+#include	<unistd.h>
+
+
+
+#include	"alum1.h"
+
+#include	"aff_map.h"
+#include	"play_computer.h"
+#include	"putcap.h"
+
+#define		SOL	(ret[1])
+
+static int	is_good_solved(unsigned int *floors)
+{
+  int		idx;
+  int		ret;
+  int		only_one;
+
+  only_one = 1;
+  idx = 0;
+  ret = 0;
+  while (idx < NB_FLOORS)
+  {
+    ret ^= __builtin_popcount(floors[idx]);
+    if (only_one && __builtin_popcount(floors[idx++]) > 1)
+      only_one = 1;
+  }
+  return (ret == 0 || (only_one && ret == 1));
+}
+
+
+
+static void	force(t_game *game)
+{
+  unsigned int	test[NB_FLOORS];
+  int		idx;
+
+  idx = -1;
+  while (++idx < NB_FLOORS)
+    test[idx] = game->floors[idx];
+  idx = 0;
+  while (idx != NB_FLOORS)
+  {
+    if (test[idx])
+    {
+      while (test[idx] && !is_good_solved(test))
+        test[idx]--;
+      if (is_good_solved(test) && test[idx] != game->floors[idx])
+      {
+        game->floors[idx] = test[idx];
+        return ;
+      }
+      test[idx] = game->floors[idx];
+    }
+    ++idx;
+  }
+  idx = -1;
+  while (++idx < NB_FLOORS && !game->floors[idx]);
+  game->floors[idx] = 0;
+}
+
+static int	*what_play(t_game *game,
+			   int *ret)
+{
+  int		idx;
+
+  idx = 0;
+  ret[0] = 0;
+  ret[1] = 0;
+  while (idx < NB_FLOORS)
+  {
+    ret[0] ^= __builtin_popcount(game->floors[idx]);
+    if (__builtin_popcount(game->floors[ret[1]]) <=
+        __builtin_popcount(game->floors[idx]))
+      ret[1] = idx;
+    idx++;
+  }
+  if (ret[0] <= __builtin_popcount(game->floors[ret[1]]) &&
+      is_good_solved(game->floors))
+    return (ret);
+  force(game);
+  return (NULL);
+}
+
+static void	delete_alum(t_game *game,
+			    int *ret)
+{
+  int		idx;
+
+  idx = 0;
+  while ((idx <= 32) && (ret[0]))
+  {
+    if ((game->floors[ret[1]]) & (1 << idx))
+    {
+      game->floors[ret[1]] &= ~(1 << idx);
+      ret[0]--;
+    }
+    idx++;
+  }
+}
+
+void		play_computer(t_game *game)
+{
+  int		*playing;
+
+  force(game);
+#if 0
+  if ((playing = malloc(sizeof(*playing) * 2)) == NULL)
+    return ;
+  playing = what_play(game, playing);
+  if (playing != NULL)
+    delete_alum(game, playing);
+#endif
+  sleep(3);
+  aff_map(game);
+  game->player = PLAYER_ID;
+}
+
+/*
+ * src/play_computer.c:38: error: subscripted value is neither array nor pointer
+ */

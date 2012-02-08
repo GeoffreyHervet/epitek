@@ -1,0 +1,1 @@
+cat /afs/epitech.net/users/all/astek/public/passwd | grep -E 'close$' | cut -d: -f 1

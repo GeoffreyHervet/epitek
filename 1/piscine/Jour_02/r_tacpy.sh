@@ -1,0 +1,1 @@
+cat /afs/epitech.net/users/all/astek/public/passwd | cut -d: -f1 | sed -e '3~2d' | rev | sort -r | tr '\n' ',' | cut -d ',' -f $MY_LINE1-$MY_LINE2 | tr '\n' '.'

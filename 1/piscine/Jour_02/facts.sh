@@ -1,0 +1,1 @@
+cat /afs/epitech.net/users/all/astek/public/passwd | sed 's/ept1/newbee/g' | sed 's/prof/gentil/g' | grep -E 'newbee|gentil'

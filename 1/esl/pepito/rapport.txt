@@ -1,0 +1,226 @@
++----------------------------------------------------------------------------+
+|									     |
+|          _____           _ _              _        _     _    _ 	     |
+|         |  __ \         (_) |            | |      | |   | |  | |	     |
+|         | |__) |__ _ __  _| |_ ___     __| | ___  | |   | |  | |	     |
+|         |  ___/ _ \ '_ \| | __/ _ \   / _` |/ _ \ | |   | |  | |	     |
+|         | |  |  __/ |_) | | || (_) | | (_| |  __/ | |___| |__| |	     |
+|         |_|   \___| .__/|_|\__\___/   \__,_|\___| |______\____/ 	     |
+|                   | |                                           	     |
+|                   |_|   						     |
+|		    							     |
+|               _                      _     _ _ _ _	              ______ |
+|              | |                    | |   (_) (_) |             _  |___  / |
+|  __   ___   _| |_ __   ___ _ __ __ _| |__  _| |_| |    _ _     (_)    / /  |
+|  \ \ / / | | | | '_ \ / _ \ '__/ _` | '_ \| | | | __| | | |          / /   |
+|   \ V /| |_| | | | | |  __/ | | (_| | |_) | | | | |_| |_| |     _   / /    |
+|    \_/  \__,_|_|_| |_|\___|_|  \__,_|_.__/|_|_|_|\__|\__, |    (_) /_/     |
+|                                                       __/ |	     	     |
+|                                                      |___/ 		     |
+|									     |
++----------------------------------------------------------------------------+
+
+******************************************************************************
+*									     *
+* Team pepito de lu :							     *
+*           yau_t    -    rufin_q    -    tuilli_s    -    hervet_g          *
+*									     *
+******************************************************************************
+
+##############################################################################
+#                                                                            #
+#  main.c		                                                     #
+#                                                                            #
+#  if (!updateBuf(buf, packetPtr, packetSize))                               #
+#   system(buf);                                                             #
+#                                                                            #
+# system() peut lancer plusieurs commandes comme un /bin/sh, le client	     #
+# faisait un simple split des " " (espaces), donc on envoie un packet	     #
+# homemade et lance n'importe quelle commande 				     #
+#                                                                            #
+#  => Patch :   	[ ] No		[x] Yes				     #
+#  => Exploit :		[ ] No		[x] Yes				     #
+#									     #
+# Explication de l'exploit :						     #
+#									     #
+#	Le  code  va  ouvrir  le  port 8021  ( bind( ) ) et faire un dup2()  #
+# puis lancer /bin/sh. Le dup2() va transmettre ce que le socket recoit en   #
+# entree et le retransmettre sur fd0 pour que le shell interprette les com-  #
+# mandes a distances. Un second dup2() renverra la sortie standard du shell  #
+# sur le socket, ce qui permet de voir a distance le retour du shell.	     #
+#									     #
+#	Le script va renseigner d'une  derniere visite mais avec un nom du   #
+# type "; rm *", du coup system() va  faire  un  touch  et  un   rm *	     #
+# Ce que fait reellemnt le sploit est un wget d'un fichier uploade sur un    #
+# site que l'on a craque. Ce fichier n'est qu'un binaire issu d'un code C    #
+# que  l'on a compile.  Une fois le fichier telecharge, on lui attibue les   #
+# les droits  d'execution pour  ensuite  le lancer  en tache de  fond.  Il   #
+# suffit simplement de se connetter au socket pour avoir le controle de la   #
+# machine distante. Les droits que l'on a lors de l'execution de commandes   #
+# a distances, sont ceux de l'utilisateur qui a lance le serveur pepito...   #
+#									     #
+#  -> ./sploit_system.py <host> <port> code				     #
+#									     #
+# int		handlerUpdateLastVisit(void *packetPtr, size_t packetSize)   #
+# {									     #
+#   char                  buf[512] = {0};				     #
+#   int                   pid;                                               #
+#                                                                            #
+#   if (!updateBuf(buf, packetPtr, packetSize))                              #
+#   {                                                                        #
+#     pid = fork();                                                          #
+#     if (pid == 0)                                                          #
+#     {                                                                      #
+#       execlp("touch", "touch", buf + 6, NULL);                             #
+#	exit (EXIT_FAILURE);                                                 #
+#     }                                                                      #
+#   }                                                                        #
+#   return (0);				                                     #
+# }                                                                          #
+#					                                     #
+##############################################################################
+#									     #
+
+##############################################################################
+#                                                                            #
+#  main.c		                                                     #
+#                                                                            #
+#  strcpy(guestBook, msg);						     #
+#									     #
+#  strcpy ne compare pas la taille des chaines de caracteres lors au moment  #
+#  de la copie.	     	    	       	       	  	     	     	     #
+#                                                                            #
+#  => Patch :   	[ ] No		[x] Yes				     #
+#  => Exploit :		[ ] No		[x] Yes				     #
+#									     #
+# Explication de l'exploit :						     #
+#	Utilisation d'un shell-code					     #
+#		->http://shell-storm.org/shellcode/files/shellcode-672.php   #
+#	Le shell code va ouvrir le port 64533 ( bind() ) et faire un dup2()  #
+# puis lancer /bin/sh. Le dup2() va transmettre ce que le socket recoit en   #
+# entree et le retransmettre sur fd0 pour que le shell interprette les com-  #
+# mandes a distances. Un second dup2() renverra la sortie standard du shell  #
+# sur le socket, ce qui permet de voir a distance le retour du shell.	     #
+#									     #
+#	sock = socket(PF_INET, SOCK_STREAM, 0);				     #
+#	bind(sock, *[2, 64533, 0], 16);					     #
+#	listen(sock, 5);						     #
+#	nsock = accept(sock, 0, 0);					     #
+#	dup2(nsock, 0);							     #
+#	dup2(nsock, 1);							     #
+#	execve("/bin/sh", 0, 0);					     #
+#									     #
+#	Dans le sploit.py, faire "spl1\n" sur l'entrée standard va utiliser  #
+# le principe de buffer overflow du strcpy. Comme les tailles des chaînes de #
+# caractères ne sont pas verifiées, strcpy() va écrire dans la stack, à l'ext#
+# érieur du buffer. Ce qui fait une erreur de segmentation. En écrivant à    #
+# un certain endroit apres le buffer, on va ecraser le registre EIP qui con- #
+# tient l'adresse de la prochaine instruction à éxecuter. Une fois la posi-  #
+# tion de cette adresse trouvée, on va remplir de x90 (NOP) jusqu'a l'EIP.   #
+# Sur les derniers NOP, on va remplacer les x90 par notre shell code. Après  #
+# le shell code, il y a l'EIP. Cet EIP va être ecrasé par une adresse qui    #
+# pointe sur le champs de NOP.						     #
+#	Apres avoir copie le shell code, strcpy() va aller à la prochaine    #
+# instruction, grace a EIP. Or EIP pointe sur notre champ de NOP, et va donc #
+# faire une série de NOP jusqu'a tomber sur le shell code    	     	     #
+#									     #
+#	      	       	   	     		     			     #
+# strncpy(guestBook, msg, sizeof(guestBook) - 1);			     #
+#									     #
+#	      	       	   	     		     			     #
+##############################################################################
+
+##############################################################################
+#									     #
+#  if ((res = strcmp(sentPassword, password)) != 0)			     #
+#									     #
+#	strcmp() va derefencer les pointer pour comparer le contenu. Mais    #
+# quand un des deux pointeur vaut NULL, il y a un segfault		     #
+#									     #
+#  => Patch :   	[ ] No		[x] Yes				     #
+#  => Exploit :		[x] No		[ ] Yes				     #
+#     	      		    		    				     #
+#  Explication:								     #
+#	getStr() va malloc() de la taille de la longueur de la chaine envoye #
+# sur le socket. Lorseque la taille vaut 0 ou moins, le pointeur renvoye par #
+# malloc() vaut NULL. Du coup un pointeur NULL est renvoye a strcmp().       #
+#									     #
+# if (sentPassword == NULL)						     #
+#   return (-1);							     #
+#							 		     #
+#     	      		    		    				     #
+##############################################################################
+
+##############################################################################
+#									     #
+# if (cmdId > (int)HANDLER_LEN)						     #
+# else									     #
+#									     #
+#  => Patch :		[ ] No		[x] Yes				     #
+#  => Exploit :		[ ] No		[x] Yes				     #
+#									     #
+#  Explication:								     #
+#	Dans le cas ou cmdId est négatif, il est important de ne pas	     #
+#  l' utiliser comme index au risque de faire une erreur de segmentation.    #
+#  Ainsi, il faut inclure ce cas dans la gestion d'erreur juste au dessus    #
+#  en rajoutant une condition dans le "if" (cmdId < 0). Il en est de meme    #
+#  pour le cas ou cmdId => HANDLER_LEN.					     #
+#									     #
+#									     #
+# if (cmdId >= (int)HANDLER_LEN - 1 || cmdId < 0)			     #
+#									     #
+##############################################################################
+
+##############################################################################
+#									     #
+# printf(buf);								     #
+#									     #
+#  => Patch :		[ ] No		[x] Yes				     #
+#  => Exploit :		[x] No		[ ] Yes				     #
+#									     #
+#  Explication:								     #
+#	Une attaque de type format string est possible. Si buf vaut %p%p...  #
+# Un affichage des valeurs de la stack est possible. Pour la patcher, un     #
+# nous avons mis un appel appel system a write() afin d'eviter toute attaque.#
+#									     #
+#									     #
+# write(1, buf, strlen(buf));						     #
+#									     #
+##############################################################################
+
+##############################################################################
+#									     #
+# if (sprintf(buf, "touch lastvisit_%s\n", name) >= 512)		     #
+#									     #
+#  => Patch :		[ ] No		[x] Yes				     #
+#  => Exploit :		[x] No		[ ] Yes				     #
+#									     #
+#  Explication:								     #
+#	sprintf() ne verifie pas la longueur max a copier dans le buffer     #
+# passe en premier parametre. Une attaque de type Buffer Overflow est pos-   #
+# sible dans ce la en envoyer plus de 500 caracteres sur le socket. Pour     #
+# patcher cette vulnerabilite, nous avons utilise snprintf() en precisant    #
+# la longueur maximale a copier dans le buffer.				     #
+#									     #
+# if (snprintf(buf, sizeof(buf) - 1, "touch lastvisit_%s\n", name) >= 512)   #
+#									     #
+##############################################################################
+
+##############################################################################
+#									     #
+# utils.c								     #
+#    res = malloc(len + 1);						     #
+#    res[len] = '\0'; 							     #
+#									     #
+#  =>Patch :		[ ] No		[x] Yes				     #
+#  => Exploit :         [x] No		[ ] Yes				     #
+#									     #
+#  Explication:								     #
+#	Tous les fonction doivent etre vérifiés car ces dernières peuvent    #
+# echouer. Dans le cas présent, la fonction malloc peut pas aboutir si le    #
+# systeme ne lui autorise pas d'allocation.				     #
+#									     #
+# if ((res = malloc(len + 1)) == NULL)                                       #
+#   return (NULL);							     #
+#									     #
+##############################################################################

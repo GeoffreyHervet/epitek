@@ -1,0 +1,12 @@
+--- src/utils.original.c	Sun Apr 10 18:21:41 2011
++++ src/utils.c	Sun Apr 10 18:21:41 2011
+@@ -53,7 +53,8 @@
+   char 			*res = NULL;
+ 
+   if ((len = getNumber(p, l)) > 0) {
+-    res = malloc(len + 1);
++    if ((res = malloc(len + 1)) == NULL)
++      return (NULL);
+     res[len] = '\0';
+     strncpy(res, *p, len);
+     (*p) += len;

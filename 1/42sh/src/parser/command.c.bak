@@ -1,0 +1,69 @@
+/*
+** command.c for  in /home/yau_t//local/Projets/semestre_2/42sh/src/parser
+** 
+** Made by tom-brent yau
+** Login   <yau_t@epitech.net>
+** 
+** Started on  Tue Apr  5 16:46:12 2011 tom-brent yau
+** Last update Thu May 12 17:18:07 2011 quentin rufin
+*/
+
+#include	<stdlib.h>
+#include	<string.h>
+#include	"sh.h"
+#include	"init_node.h"
+#include	"pipeline.h"
+#include	"utils.h"
+#include	"xstrdup.h"
+
+static int	read_and(t_tree *node, t_lex **lex)
+{
+  if (*lex == NULL || (*lex)->info.type != OPE_AND
+      || (*lex)->next == NULL)
+    return (0);
+  node->info.str = xstrdup((*lex)->info.str);
+  node->info.type = OPE_AND;
+  *lex = (*lex)->next;
+  return (1);
+}
+
+static int	read_or(t_tree *node, t_lex **lex)
+{
+  if (*lex == NULL || (*lex)->info.type != OPE_OR
+      || (*lex)->next == NULL)
+    return (0);
+  node->info.str = xstrdup((*lex)->info.str);
+  node->info.type = OPE_OR;
+  *lex = (*lex)->next;
+  return (1);
+}
+
+void	read_backgd(t_tree *node, t_lex **lex)
+{
+  if (*lex == NULL || (*lex)->info.type != BACKGROUND)
+    node->bg = 0;
+  else
+    {
+      node->bg = 1;
+      *lex = (*lex)->next;
+    }
+}
+
+t_tree	*command(t_lex **lex)
+{
+  t_tree	*node;
+
+  node = init_node(NULL);
+  if ((node->left = pipeline(lex)))
+    {
+      if (read_and(node, lex) || read_or(node, lex))
+	{
+	  node->right = command(lex);
+	  return (node);
+	}
+      node = free_node_ret_leaf(node, node->left);
+      return (node);
+    }
+  free(node);
+  return (NULL);
+}

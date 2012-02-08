@@ -1,0 +1,122 @@
+/*
+** cd.c for my_sh in /home/hervet_g//work/projets/minishel
+** 
+** Made by geoffrey hervet
+** Login   <hervet_g@epitech.net>
+** 
+** Started on  Wed Dec 22 11:07:43 2010 geoffrey hervet
+** Last update Fri Dec 24 08:55:26 2010 geoffrey hervet
+*/
+
+#include		<unistd.h>
+
+#include		<stdlib.h>
+
+#include		<stdio.h>
+
+#include		"my_sh.h"
+#include		"errors.h"
+#include		"libmy.h"
+#include		"builtins/builtins_all.h"
+#include		"builtins/cd_strcat_pwd.h"
+#include		"env/set_env.h"
+#include		"env/get_env.h"
+
+static int		xchdir(char *path)
+{
+  if (!chdir(path))
+    return (0);
+  critical_error(1, 1, 0, ERR_CHDIR);
+  return (-1);
+}
+
+static char		*clear_pwd(char *pwd)
+{
+  unsigned int		idx1;
+  unsigned int		idx2;
+
+  idx1 = 0;
+  while (pwd[idx1])
+    {
+      if (pwd[idx1] == '/' && pwd[idx1 + 1] == '/')
+	{
+	  idx2 = idx1 + 1;
+	  while (pwd[idx2])
+	    {
+	      pwd[idx2] = pwd[idx2 + 1];
+	      ++idx2;
+	    }
+	}
+      else
+	++idx1;
+    }
+  return (pwd);
+}
+
+
+static char		*exec_cd(t_base *base,
+				 t_env *pwd,
+				 char *ex_cd,
+				 t_cmd_split *cmd)
+{
+  t_env			*tmp_env;
+  char			*new_pwd;
+
+  tmp_env = get_env(base->env, "HOME");
+  if (!cmd->next)
+    {
+      if (tmp_env == NULL)
+	{
+	  critical_error(1, 1, 0, ERR_NEEDHOME);
+	  return (NULL);
+	}
+      return ((xchdir(tmp_env->val) == 0) ? my_strdup(tmp_env->val) : NULL);
+    }
+  if (!my_strcmp("-", cmd->next->data))
+    return ((xchdir(ex_cd) == 0) ? my_strdup(tmp_env->val) : NULL);
+  if (cmd->next->data[0] != '/')
+    {
+      new_pwd = strcat_pwd(clear_pwd(pwd->val), clear_pwd(cmd->next->data));
+      if (new_pwd[0] == '\0')
+      {
+	new_pwd[0] = '/';
+	new_pwd[1] = '\0';
+      }
+      if (xchdir(new_pwd) == -1)
+	{
+	  return (NULL);
+	  free(new_pwd);
+	}
+      ex_cd = new_pwd;
+      return (NULL);
+    }
+  return ((xchdir(cmd->next->data) == 0) ? my_strdup(ex_cd) : NULL);
+}
+
+int			cd(t_base *base)
+{
+  static char		*ex_cd = NULL;
+  char			*new_cd;
+  t_env			*pwd;
+
+  pwd = get_env(base->env, "PWD");
+  if (pwd == NULL)
+    critical_error(1, 1, 1, "PWD NOT FOUND.... (builtins/cd.c -> cd(...)\n");
+  if (ex_cd == NULL)
+    ex_cd = clear_pwd(pwd->val);
+  new_cd = exec_cd(base, pwd, ex_cd, base->cmd_splited);
+  my_putstr("Valleur de new_cd : ", 2);
+  my_putstr(new_cd, 2);
+  my_putstr("\n", 2);
+  /*
+    EDITER VALEUR PWD
+   */
+  if (new_cd != NULL)
+    {
+      printf("Free de ex_cd Adresse %p\n", (void *) ex_cd);
+      free(ex_cd);
+      ex_cd = new_cd;
+      
+    }
+  return (0);
+}

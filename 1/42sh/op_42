@@ -1,0 +1,77 @@
+3) Partie obligatoire :
+
+  Cette partie doit ABSOLUMENT MARCHER COMPLETEMENT et être PARFAITEMENT
+  STABLE avant que vous fassiez quoi que ce soit d'autre, sinon ce sera 0.
+
+ - Une acquisition de ligne minimale :
+   - affichage d'un prompt (plus ou moins élaboré)
+   - récupération de la ligne tapée (un get_next_line(0) devrait suffir)
+
+ - Exécution des commandes avec leurs paramètres (ex: $ls -l / )
+   - gestion correcte des espaces et TABs
+   - gestion du PATH (pas forcément de système de cache)
+   - gestion des erreurs et de la valeur de retour
+     ex: $./str_maxlenoxc "ddd" "dd" "who"
+          segmentation fault (core dumped)
+         $
+
+ - les redirections :
+   ex: $</etc/hosts od -c | grep xx | wc >> /tmp/z -l
+
+   - < > >>
+   - les pipes
+
+ - builtins:
+   - cd  (avec cd seul et cd -)
+   - echo
+   - exit
+
+ - les séparateurs :
+   - ;
+   - &&
+   - ||
+
+
+ex: $cd /tmp;ls -l > /tmp/xx < /dev/null |echo * ;sleep 100& who;ls || who && pwd ; echo test
+
+
+4) Partie optionelle :
+
+  C'est sur cette partie que vous gagnerez (normalement) la majorité des
+ points. Elle est globalement libre. Vous pouvez faire ce que vous voulez.
+ Mais  la cohérence de l'ensemble sera prise en compte. Encore une fois la
+ stabilité sera beaucoup plus importante que la quantité. Ne mettez pas une
+ option qui pose un problème au reste et surtout à la partie obligatoire.
+ Pensez surtout à l'utilisabilité.
+
+ - Liste d'options souhaitables:
+
+  - les inhibiteurs (" ' \ )
+    ex: $ls "who|'"  '"'"slt\""
+#  - le globing * ? [ ] { }
+    ex: $echo {a*[^c],b??.*[a-z]}/b*.{c,h}
+  - le background
+    ex: $sleep 100 &
+  - les `
+    ex: $kill -9 `ps ax | grep netscape | awk '{print $1}'`
+  - les ()
+    ex: $(cut -d\  -f2 .note | tr '\n' +;echo 0)| bc -l
+#  - les variables (local et d'env).
+    ex: $set a=val;echo $a;ls $a;$a
+#    - variables spéciales : term,precmd,cwdcmd,cwd,ignoreof ...
+  - history
+      ex: $history
+      - avec !
+      ex: $!ls
+      ex: $!12
+      ex: $!-4
+      - avec ! et modificateur
+      ex: $!ls:s/.c/.h
+      - linker avec l'édition de ligne
+  - alias
+  - édition de ligne:
+#    - multi ligne
+    - avec rebinding dynamique
+    - complétion dynamique (fichier, commande, contextuel ....)
+  - job control (très très apprecié)
+#  - scripting (très long)

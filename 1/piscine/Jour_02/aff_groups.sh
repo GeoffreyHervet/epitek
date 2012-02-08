@@ -1,0 +1,1 @@
+groups $MY_USER | cut -d ':' -f2 | sed -e 's/^ //' | sed -r 's/ /,/g'

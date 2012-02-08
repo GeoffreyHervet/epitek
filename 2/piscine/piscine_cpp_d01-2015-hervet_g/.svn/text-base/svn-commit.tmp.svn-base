@@ -1,0 +1,7 @@
+ex01
+--This line, and those below, will be ignored--
+
+A    ex01
+A    ex01/main.c
+A    ex01/Makefile
+A    ex01/menger.c

@@ -1,0 +1,125 @@
+#ifndef		_OPERANDS_HH_
+#define		_OPERANDS_HH_
+
+#include	<string>
+#include	<iostream>
+#include	<sstream>
+
+#include	"IOperand.hh"
+<<<<<<< .mine
+#include	"Stack.hh"
+=======
+#include	"Stack.hh"
+#include	"utils.h"
+>>>>>>> .r43
+
+#define		MOD(x, y) ((x) - ((x) / (y)) * (y))
+
+namespace	avm
+{
+  template <typename T>
+  class Operand : public IOperand
+  {
+    public:
+      Operand(std::string val, eOperandType type)
+        : type(type), str(val)
+      {
+        std::stringstream     a;
+
+        a.str(val);
+        a >> this->value;
+      };
+
+      ~Operand(){};
+
+      IOperand		*clone() const { return (new Operand<T>(this->toString(), this->type)); };
+      IOperand		*clone(const std::string &val) const { return (new Operand<T>(val, this->type)); };
+
+      std::string const&	toString() const {   return (this->str); };
+      int			getPrecision() const {    return (static_cast<int>(this->type));};
+      eOperandType		getType() const {    return (this->type); };
+      T				getValue() const { return (this->value);};
+      void			setValue(T val){ this->value = val; };
+
+      IOperand		*cloneBigestPrec(const IOperand &rhs, std::string val) const
+      {
+        if (rhs.getPrecision() > this->getPrecision())
+          return static_cast<const Operand & > (rhs).clone(val);
+        return this->clone(val);
+      };
+
+      IOperand *operator+(const IOperand &rhs) const
+      {
+        return  this->cloneBigestPrec(rhs,utils::toStr(static_cast<const Operand & >(rhs).value + this->value));
+      };
+
+      IOperand *operator-(const IOperand &rhs) const
+      {
+        return  this->cloneBigestPrec(rhs,utils::toStr(static_cast<const Operand & >(rhs).value - this->value));
+      };
+
+      IOperand *operator*(const IOperand &rhs) const
+      {
+        return  this->cloneBigestPrec(rhs,utils::toStr(static_cast<const Operand & >(rhs).value * this->value));
+      };
+
+      IOperand *operator/(const IOperand &rhs) const
+      {
+        return  this->cloneBigestPrec(rhs,utils::toStr(static_cast<const Operand & >(rhs).value / this->value));
+      };
+
+      IOperand *operator%(const IOperand &rhs) const
+      {
+        return  this->cloneBigestPrec(rhs,utils::toStr(MOD(static_cast<const Operand & >(rhs).value,this->value)));
+      };
+
+<<<<<<< .mine
+      s.str(rhs.toString());
+      s >> tmp;
+      if (tmp == 0.0)
+	throw Stack::Error("Div by 0");
+      result = (rhs.getPrecision() > this->getPrecision() ?
+          static_cast<const Operand & > (rhs).clone() : this->clone());
+      result->value = this->value / tmp;
+      s.clear();
+      s << result->value;
+      result->str = s.str();
+      return (result);
+    };
+
+    IOperand *operator%(const IOperand &rhs) const
+    {
+    Operand       *result;
+    int           tmp;
+    std::stringstream     s;
+
+    s.str(rhs.toString());
+    s >> tmp;
+    if (tmp == 0)
+      throw Stack::Error("Error: Modulo by 0");
+    if (rhs.getType() == FLOAT || rhs.getType() == DOUBLE)
+      throw Stack::Error("Modulo by decimal");
+    result = (rhs.getPrecision() > this->getPrecision() ?
+	   static_cast<const Operand &>(rhs).clone() : this->clone());
+    result->value = this->value - (this->value / tmp) * tmp;
+    s.clear();
+    s << result->value;
+    result->str = s.str();
+    return (result);
+    };
+
+  private:
+    eOperandType          type;
+    std::string           str;
+    T                     value;
+=======
+    private:
+      eOperandType          type;
+      std::string           str;
+      T                     value;
+>>>>>>> .r43
+  };
+
+};
+
+#endif		/* _OPERANDS_HH_ */

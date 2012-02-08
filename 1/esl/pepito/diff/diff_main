@@ -1,0 +1,89 @@
+--- src/main.origical.c	Sun Apr 10 18:21:41 2011
++++ src/main.c	Sun Apr 10 18:21:41 2011
+@@ -30,6 +30,8 @@
+ {
+   int			res;
+ 
++  if (sentPassword == NULL)
++    return (-1);
+   if (strlen(password)) {
+     if ((res = strcmp(sentPassword, password)) != 0)
+       sendLogMessage(PASSWD_FAIL);
+@@ -67,19 +69,19 @@
+   char			*msg;
+ 
+   if ((msg = getStr(&packetPtr, &packetSize))) {
+-    strcpy(guestBook, msg);
++    strncpy(guestBook, msg, sizeof(guestBook) - 1);
+     sendLogMessage(AD_CHANGE);
+     free(msg);
+   }
+   return (0);
+ }
+ 
+-int			updateBuf(char *buf, void *packetPtr, size_t packetSize)
++int			updateBuf(char buf[512], void *packetPtr, size_t packetSize)
+ {
+   char			*name = NULL;
+ 
+   if ((name = getStr(&packetPtr, &packetSize))) {
+-    if (sprintf(buf, "touch lastvisit_%s\n", name) >= 512)
++    if (snprintf(buf, sizeof(buf) - 1, "touch lastvisit_%s\n", name) >= 512)
+       return (1);
+     free(name);
+     return (0);
+@@ -87,12 +89,20 @@
+   return (1);
+ }
+ 
+-int			handlerUpdateLastVisit(void *packetPtr, size_t packetSize)
++int		handlerUpdateLastVisit(void *packetPtr, size_t packetSize)
+ {
+-  char			buf[512] = {0};
++  char                  buf[512] = {0};
++  int                   pid;
+ 
+   if (!updateBuf(buf, packetPtr, packetSize))
+-    system(buf);
++  {
++    pid = fork();
++    if (pid == 0)
++    {
++      execlp("touch", "touch", buf + 6, NULL);
++      exit (EXIT_FAILURE);
++    }
++  }
+   return (0);
+ }
+ 
+@@ -103,11 +113,11 @@
+ 
+   passwd = getStr(&packetPtr, &packetSize);
+   if (strlen(guestBook) < 512 - 20) {
+-    snprintf(buf, sizeof(buf), "Dernier message : %s", guestBook);
++    snprintf(buf, sizeof(buf) - 1, "Dernier message : %s", guestBook);
+     if (passwordCheck(passwd))
+       return (1);
+   }
+-  printf(buf);
++  write(1, buf, strlen(buf));
+   return (0);
+ }
+ 
+@@ -128,7 +138,7 @@
+   int			cmdId;
+ 
+   cmdId = getNumber(&packetPtr, &packetSize);
+-  if (cmdId > (int)HANDLER_LEN)
++  if (cmdId >= (int)HANDLER_LEN - 1 || cmdId < 0)
+     fprintf(stderr, "ID (%i) out of range.\n", cmdId);
+   else
+     handlerTab[cmdId](packetPtr, packetSize);
+@@ -150,7 +160,3 @@
+   fprintf(stderr, "usage: %s {start|debug|stop}\n", argv[0]);
+   return (EXIT_SUCCESS);
+ }
+-
+-/*
+-** (|€~
+-*/

@@ -1,0 +1,1 @@
+find . -ignore_readdir_race -type f -o -type d | wc -l

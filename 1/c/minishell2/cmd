@@ -1,0 +1,33 @@
+ls
+ls -la --color
+pwd
+cd -
+cd ../
+cd ..
+cd -
+pwd
+cd -
+pwd
+cd /.........../.../
+pwd
+env
+unsetenv
+env
+setenv
+env
+setenv *
+env
+unsetenv *
+env
+setenv PROMPT IgiX~>
+env
+unsetenv PROMPT
+env
+unsetenv JE_NEXISTE_PAS
+env
+setenv PAS_DE_VALEUR
+env
+printf \n\n\n
+yes LOL
+echo Segmentation fault
+exit

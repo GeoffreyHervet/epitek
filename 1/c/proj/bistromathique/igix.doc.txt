@@ -1,0 +1,33 @@
+int             grow_btree(char *expr, t_btree **btree);
+
+The gestion of the binary btree
+
+Return values :
+       on succes : 0
+       on error	 : -1 (malloc error)
+
+
+t_btree		*btree_add_node(char *str, t_btree **node, int str_pos_start, int str_pos_end)
+
+Add a node in the binary tree
+
+Return values :
+       on succes : t_btree *
+       on error  : NULL
+
+
+
+
+
+Gestion errno ?
+
+
+
+
+
+
+
+
+
+
+

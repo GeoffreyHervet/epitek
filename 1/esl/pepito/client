@@ -1,0 +1,78 @@
+#!/usr/bin/env python
+
+###################################################
+# PepitoCLIent v0.1a -- Zerk's Inside
+###################################################
+
+import socket
+import sys
+
+############### Class Client ##
+
+class Client:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+
+    def send(self, command):
+        cmdString = command[0]
+        for e in command[1:]:
+            cmdString += " " + str(len(e)) + e
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((self.host, int(self.port)))
+        sock.send(cmdString)
+
+    def interactiveMode(self):
+        stop = 0
+        while stop == 0:
+            sys.stdout.write("pepitoCLI>")
+            line = sys.stdin.readline()
+            if line == "":
+                stop = 1;
+                print("  \nBye.")
+            elif line != "\n":
+                command = line.strip("\n").split(" ")
+                self.send(command)
+            
+        
+
+###############################
+
+################ Main Source ##
+
+def printUsage(args):
+    print("Usage : %s <host> <port> [command [params ...]]" % (args[0]))
+    print("\t<elements> are mandatory")
+    print("\t[command] example : %s localhost 0 \"3 michel\"" % (args[0]))
+
+def parseArgs(args):
+    host = None
+    port = None
+    command = None
+
+    if len(args) >= 4:
+        command = args[3:]
+    if len(args) >= 3:
+        host = args[1]
+        port = args[2]
+    else:
+        printUsage(args)
+        sys.exit()
+
+    return (host, port, command)
+
+def main():
+    (host, port, command) = parseArgs(sys.argv)
+    try:
+        client = Client(host, port)
+        if command != None:
+            client.send(command)
+        else:
+            client.interactiveMode()
+    except Exception as e:
+        print(e)
+
+if __name__ == "__main__":
+    main()
+
+###############################
