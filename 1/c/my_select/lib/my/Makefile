@@ -25,7 +25,7 @@ SRC	=	my_putchar.c		\
 
 PWD_OK	=	.
 
-OBJ	=	$(SRCS:.c=.o)
+OBJ	=	$(SRC:.c=.o)
 
 CFLAGS	+=	-W -Wall -Wextra -ansi -pedantic
 

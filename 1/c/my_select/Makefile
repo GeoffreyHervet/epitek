@@ -25,7 +25,7 @@ SRC	=	action/action.c		\
 		move_cursor.c		\
 		put_cap.c
 
-LIB	=	my_i686-Linux
+LIB	=	libmy_$(shell uname -m)-$(shell uname -s)
 
 LDFLAGS	+=	-L./lib
 LDFLAGS	+=	$(DEBUG)
