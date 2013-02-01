@@ -1,0 +1,141 @@
+#!/bin/sh
+
+##########
+# Config #
+##########
+
+SYSTEM="$(uname -s)"
+
+
+#############
+# Functions #
+#############
+
+is_os_supported()
+{
+  if [ "$SYSTEM" = 'Linux' ]  || \
+     [ "$SYSTEM" = 'Darwin' ] ; then
+    return 0
+  fi
+  return 1
+}
+
+opt_usage()
+{
+  echo "Usage: $0 [--help | --clean | --fclean | --debug | --dev | --release] [CMake Options]"
+}
+
+clean_cmake_stuff()
+{
+  if [ -z "$1" ] ; then return ; fi
+  rm -rf "$1/CMakeCache.txt" "$1/CMakeFiles" "$1/Makefile" "$1/cmake_install.cmake" "$1/install_manifest.txt" 2>&1 >/dev/null
+}
+
+clean_qt_stuff()
+{
+  if [ -z "$1" ] ; then return ; fi
+  find "$1" -mindepth 1 -maxdepth 2 -type f -name '*.cxx' -delete 2>&1 >/dev/null
+  rm -rf $1/*.depends 2>&1 >/dev/null
+}
+
+opt_clean()
+{
+  clean_cmake_stuff '.'
+  clean_cmake_stuff './src/tronberman'
+  clean_cmake_stuff './src/editor'
+  clean_qt_stuff './src/editor'
+  if [ -r 'Makefile' ] ; then
+    make clean 2>&1 >/dev/null
+  fi
+  echo 'Project cleaned!'
+}
+
+opt_fclean()
+{
+  if [ "$SYSTEM" = 'Linux' ] ; then
+    find . -mindepth 1 -maxdepth 1 -perm /0111 -type f ! -name configure -delete 2>&1 >/dev/null
+  elif [ "$SYSTEM" = 'Darwin' ] ; then
+    find . -mindepth 1 -maxdepth 1 -perm +0111 -type f ! -name configure -delete 2>&1 >/dev/null
+  fi
+  opt_clean
+}
+
+handle_intern_opt()
+{
+  if [ "$1" = '--help' ] || \
+     [ "$1" = '-help' ]  || \
+     [ "$1" = '-h' ]     ; then
+    opt_usage
+    exit 0
+  fi
+
+  if [ "$1" = '--fclean' ] || \
+     [ "$1" = '-fclean' ]  || \
+     [ "$1" = '-f' ]       ; then
+    opt_fclean
+    exit 0
+  fi
+
+  if [ "$1" = '--clean' ] || \
+     [ "$1" = '-clean' ]  || \
+     [ "$1" = '-c' ]      ; then
+    opt_clean
+    exit 0
+  fi
+}
+
+handle_cmake_opt()
+{
+  cmake_build_type='-DCMAKE_BUILD_TYPE:String'
+  if [ "$1" = '--debug' ] || \
+     [ "$1" = '-debug' ]  ; then
+    cmake_build_type="$cmake_build_type=Debug"
+    return 0
+  elif [ "$1" = '--dev' ] || \
+       [ "$1" = '-dev' ]  ; then
+    cmake_build_type="$cmake_build_type=None"
+    return 0
+  elif [ "$1" = '--release' ] || \
+       [ "$1" = '-release' ]  ; then
+    cmake_build_type="$cmake_build_type=Release"
+    return 0
+  fi
+  cmake_build_type="$cmake_build_type=Release"
+  return 1
+}
+
+launch_cmake()
+{
+  if [ "$SYSTEM" = 'Linux' ] ; then
+    if ! cmake -G'Unix Makefiles' "$cmake_build_type" $@ . ; then
+      exit 1
+    fi
+  elif [ "$SYSTEM" = 'Darwin' ] ; then
+    if ! cmake -G'Unix Makefiles' "$cmake_build_type" $@ . ; then
+      exit 2
+    fi
+    echo
+    echo "Warning: the GDL GL is not available for your OS ($SYSTEM)."
+    echo 'Only the server and a non-graphic client can be compiled and ran.'
+  fi
+}
+
+main()
+{
+  if ! is_os_supported ; then
+    echo "Error: your Operating System ($SYSTEM) is not supported"
+    exit 3
+  fi
+  handle_intern_opt $@
+  if handle_cmake_opt $@ ; then shift ; fi
+  launch_cmake $@
+}
+
+
+#######
+# Go! #
+#######
+
+main $@
+
+exit 0

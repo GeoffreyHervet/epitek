@@ -1,0 +1,38 @@
+push float(82.3)
+push float(12.5)
+add
+dump
+pop
+
+push float(82.3)
+push float(12.5)
+sub
+dump
+pop
+
+push float(82.3)
+push float(12.5)
+mul
+dump
+pop
+
+push float(82.3)
+push float(12.5)
+div
+dump
+pop
+
+push float(82.3)
+push float(12.5)
+mod
+dump
+pop
+
+exit
+
+;94.8
+;69.8
+;1028.75
+;6.584
+;7.3
+ ;0

@@ -1,0 +1,154 @@
+#!/usr/bin/env python
+
+import sys, os
+import Image, ImageDraw
+from math import *
+
+class imgGesture:
+  def __init__(self, name, limits, sizes):
+    self._name = name
+    self._xWidth = sizes[0]
+    self._yHeight = sizes[1]
+    self._minX = limits[0][0]
+    self._minY = limits[1][0]
+    self._maxX = limits[0][1]
+    self._maxY = limits[1][1]
+    self._width = (self._maxX - self._minX + 2) * self._xWidth
+    self._height= (self._maxY - self._minY + 2) * self._yHeight
+
+    self._img = Image.new("RGB", (self._width, self._height))
+
+  def __del__(self):
+    self._img.save(self._name + ".png")
+    print "Image saved as \"" + self._name +".png\"  \033[01;32mSuccess !\033[00m"
+    os.system("display -title \"Powered by patard_a and hervet_g for " + self._name +" \" " + self._name + ".png || eog "+ self._name +".png");
+ 
+  def graduate(self):
+    draw = ImageDraw.Draw(self._img)
+
+    # Y axe
+    draw.line(((self._xWidth, self._yHeight), (self._xWidth, self._height - self._yHeight)), fill=0xFFFFFF)
+    # X axe
+    draw.line(((self._xWidth, self._height - self._yHeight, self._width - self._xWidth, self._height - self._yHeight)), fill=0xFFFFFF)
+
+    # X graduate
+    yTop = self._height - self._yHeight - self._yHeight / 8
+    yBot = self._height - self._yHeight + self._yHeight / 8
+    for x in range(self._minX + 1, self._maxX):
+      xPoint = self._xWidth * (1 + x - self._minX)
+      draw.line(((xPoint, yTop), (xPoint, yBot)), fill=0x00FF00)
+      draw.text((xPoint, yBot), str(x), fill=0x00FF00)
+    # Y graduate
+    xLeft  = self._xWidth - self._xWidth / 8
+    xRight = self._xWidth + self._xWidth / 8
+    for y in range(self._minY + 1, self._maxY):
+      yPoint = self._height - self._yHeight  * (y - self._minY + 1);
+      draw.line(((xLeft, yPoint), (xRight, yPoint)), fill=0x00FF00)
+      draw.text((xLeft - (xRight - xLeft), yPoint), str(y), fill=0x00FF00)
+
+    del draw
+      
+  def drawPoint(self, point):
+    draw = ImageDraw.Draw(self._img)
+
+    x = self._xWidth * (1 + point[0] - self._minX)
+    y = self._height - self._yHeight  * (point[1] - self._minY + 1);
+    
+    draw.line(((x - self._xWidth / 20, y), (x + self._xWidth / 20, y)), fill=0x0000FF)
+    draw.line(((x, y + self._yHeight / 20), (x, y - self._yHeight / 20)), fill=0x0000FF)
+
+    del draw
+
+  def drawLine(self, a, b, color, leg=""):
+    draw = ImageDraw.Draw(self._img)
+
+    x1 = self._xWidth * (1 + a[0] - self._minX)
+    y1 = self._height - self._yHeight  * (a[1] - self._minY + 1);
+
+    x2 = self._xWidth * (1 + b[0] - self._minX)
+    y2 = self._height - self._yHeight  * (b[1] - self._minY + 1);
+    
+    draw.line(((x1, y1), (x2, y2)), fill=color)
+    if leg != "":
+      draw.text((x2, y2), leg, fill=color)
+    
+    del draw
+
+def opt1(vals):
+  tot1 =    0
+  tot2 =    0
+  totSqrt = 0
+  totSqrt1 = 0
+  totMul =  0
+  for tmp in vals:
+    tot1 += tmp[0]
+    tot2 += tmp[1]
+    totSqrt += tmp[0] ** 2
+    totSqrt1 += tmp[1] ** 2
+    totMul += tmp[0] * tmp[1]
+
+  a1 = float((tot2 * totSqrt) - (tot1 * totMul)) / ((totSqrt * len(vals)) - tot1 ** 2)
+  b1 = float((totMul * len(vals)) - (tot1 * tot2)) / ((totSqrt * len(vals)) - tot1 ** 2)
+  s1 = 0
+  for tmp in vals:
+    s1 += (tmp[1] - (b1 * tmp[0] + a1)) ** 2
+  s1 = sqrt(float(s1) / len(vals))
+
+  swap = tot1
+  tot1 = tot2
+  tot2 = swap
+  
+  a2 = float((tot2 * totSqrt1) - (tot1 * totMul)) / ((totSqrt1 * len(vals)) - tot1 ** 2)
+  b2 = float((totMul * len(vals)) - (tot1 * tot2)) / ((totSqrt1 * len(vals)) - tot1 ** 2)
+  s2 = 0
+  for tmp in vals:
+    s2 += (tmp[0] - (b2 * tmp[1] + a2)) ** 2
+  s2 = sqrt(float(s2) / len(vals))
+
+  ss = 0
+  mm = 0
+  average = 0
+  for tmp in vals:
+    average += tmp[1]
+  average /= float(len(vals))
+
+  for tmp in vals:
+    ss += ((b1 * tmp[0] + a1) - average) ** 2
+    mm += (tmp[1] - average) ** 2
+  r = sqrt(float(ss) / mm)
+
+  print "Regression de Y sur X\n a = %.4f\n b = %.4f\n s = %.4f" % (a1, b1, s1)
+  print "Regression de X sur Y\n a = %.4f\n b = %.4f\n s = %.4f" % (a2, b2, s2)
+  print "Coefficient de correlation:\n r = %.4f" % (r)
+
+  return ((a1, b1), (a2, b2))
+
+
+def opt2(vals):
+  img = imgGesture("207", ((62, 73), (62, 76)), (40, 40))
+  img.graduate()
+  for point in vals:
+    img.drawPoint(point)
+  
+  infos = opt1(vals)
+  img.drawLine((63, infos[0][0] + infos[0][1] * 63), (72, infos[0][0] + infos[0][1] * 72), "yellow", "Y=f(X)")
+  img.drawLine((infos[1][0] + infos[1][1] * 63, 63), (infos[1][0] + infos[1][1] * 75, 75), "yellow", "X=f(Y)")
+
+def process(opt, fileName):
+  f = open(fileName)
+  V = []
+  for line in f:
+    if not line:
+      continue
+    values = map(int, line.split())
+    if len(values) <> 2:
+      continue
+    V.append(values)
+  [opt1, opt2][opt - 1](V)
+
+if __name__ == "__main__":
+  if len(sys.argv) <= 2 or not(int(sys.argv[1]) in [1, 2]):
+    print "Usage %s opt file" % (sys.argv[0])
+    exit(1)
+  process(int(sys.argv[1]), sys.argv[2])
+  exit(0)

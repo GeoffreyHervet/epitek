@@ -1,0 +1,38 @@
+push int16(1234)
+push int32(4)
+add
+dump
+pop
+
+push float(1234.0)
+push int8(4)
+sub
+dump
+pop
+
+push double(1234.0)
+push float(4.0)
+mul
+dump
+pop
+
+push int16(1234)
+push int8(4)
+div
+dump
+pop
+
+push int16(1234)
+push float(4.0)
+mod
+dump
+pop
+
+exit
+
+;1238
+;1230
+;4936
+;308
+;2
+ ;0

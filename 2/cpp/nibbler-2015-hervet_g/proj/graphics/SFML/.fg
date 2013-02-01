@@ -1,0 +1,30 @@
+#ifndef COREPROTO_H_
+# define COREPROTO_H_
+
+namespace	Nibbler
+{
+  typedef enum
+  {
+    EXIT,
+    MV_LEFT,
+    MV_RIGHT,
+    MV_UP,
+    MV_DOWN
+  }	eEvent;
+
+  typedef enum
+  {
+    NORMAL
+  }	eFoodType;
+
+  typedef struct
+  {
+    char	y;
+    char	x;
+    eFoodType	type;
+  }	tFood;
+
+  class Core;
+};
+
+#endif /* COREPROTO_H_ */

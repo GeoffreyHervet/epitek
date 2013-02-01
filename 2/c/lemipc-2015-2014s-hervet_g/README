@@ -1,0 +1,21 @@
+./lemipc -t teamid --exit
+
+Dans la memoire partagée =>
+  char map[600][800]    -> map de taille 800x600 de base
+  unsigned int trick_id -> numero du tour
+//  char team_name[2][15] -> nom des teams
+
+si 1er joueur -> Creer map de taille passe en paramettre
+                        |->  shm : memoire partagee
+              -> Init la semaphore a 1 pour l'acces a la map
+
+si nouveau joueur mais pas le premier -> semaphore a 0 -> pour y acceder
+                                      -> choisie son equipe si pas equipe en parametres ou invalide
+                                      -> se place
+                                      -> semaphore a 1 -> pour dire qu'on y accede plus !
+
+
+si dernier joueur en vie -> Nettoyer toutes les ressources
+
+
+PENSER A CATCHER LES SIGNAUX pour quitter

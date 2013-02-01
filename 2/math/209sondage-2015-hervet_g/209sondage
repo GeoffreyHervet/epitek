@@ -1,0 +1,38 @@
+#!/usr/bin/env python
+
+from math import *
+import sys
+import itertools
+
+def variance(vals, aver):
+  res = 0
+  for value in vals:
+    res += (value - aver) ** 2
+  return res
+
+if __name__ == "__main__":
+  f = open(sys.argv[1])
+  V = []
+  for line in f:
+    if not line: continue;
+    V.append(int(line))
+  del(V[0])
+  length = len(V)								# nb
+  m = float(sum(V)) / length 							# moyenne
+  size = int(sys.argv[2])							# echantillons size
+  s = sqrt(variance(V, m) / length)						# ecartType
+  iterLen = 0;iterVariance = 0;iterAverage = 0.;iterEcart = 0.			# inits
+  for x in itertools.combinations(V, size): iterLen += 1;iterAverage += float(sum(x)) / len(x)
+  iterEcart += sqrt((s **  2) / size * (length - size) / (length - 1))
+  iterAverage /= iterLen
+    
+  print "Population:         %s" % sys.argv[1]
+  print "Nombre d'individus:     %8g" % length
+  print "Moyenne m:              %8g" % m
+  print "Ecart type s:           %8g" % s
+  print
+  print "Echantillons de taille: %8g" % size
+  print "Nombre d'echantillons:  %8g" % iterLen
+  print "Moyenne:                %8g" % iterAverage
+  print "Ecart-type:             %8g" % iterEcart
+  print "Ecart-type d'apres s:   %8g" % sqrt((s **  2) / size * (length - size) / (length - 1))

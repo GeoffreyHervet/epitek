@@ -1,0 +1,38 @@
+push double(-82.3)
+push double(12.5)
+add
+dump
+pop
+
+push double(-82.3)
+push double(-12.5)
+sub
+dump
+pop
+
+push double(-82.3)
+push double(12.5)
+mul
+dump
+pop
+
+push double(-82.3)
+push double(-12.5)
+div
+dump
+pop
+
+push double(-82.3)
+push double(12.5)
+mod
+dump
+pop
+
+exit
+
+;-69.8
+;-69.8
+;-1028.75
+;6.584
+;-7.3
+ ;0

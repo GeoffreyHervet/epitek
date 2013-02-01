@@ -1,0 +1,8 @@
+ <!DOCTYPE RCC>
+ <RCC version="1.0">
+   <qresource>
+     <file>../../res/img/map/ground.bmp</file>
+     <file>../../res/img/map/wall.bmp</file>
+     <file>../../res/img/map/box.bmp</file>
+   </qresource>
+ </RCC>

@@ -1,0 +1,38 @@
+push int32(1234)
+push int32(4)
+add
+dump
+pop
+
+push int32(1234)
+push int32(4)
+sub
+dump
+pop
+
+push int32(1234)
+push int32(4)
+mul
+dump
+pop
+
+push int32(1234)
+push int32(4)
+div
+dump
+pop
+
+push int32(1234)
+push int32(4)
+mod
+dump
+pop
+
+exit
+
+;1238
+;1230
+;4936
+;308
+;2
+ ;0

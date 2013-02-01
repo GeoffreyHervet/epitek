@@ -1,0 +1,17 @@
+; asf
+push int32(2147483646)
+push int32(2147483644)
+push int32(2147483644)
+push int32(2147483642)
+dump
+sub
+sub
+dump
+sub
+sub
+sub
+mul
+div
+sub
+mul
+exit

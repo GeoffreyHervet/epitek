@@ -1,0 +1,92 @@
+#!/usr/bin/env python
+
+import sys
+import fileinput
+from math import factorial
+
+def p(x) : sys.stdout.write(x)
+
+def bc(n, k):
+    return factorial(n) / (factorial(k) * factorial(n - k))
+
+X = ([], [])
+def sub(t, do=False):
+    p("\n %4s " % "x")
+    for i in xrange(0, 10):
+        p(("% 4d et plus " % i) if i == 9 else (" % 4d " % i))
+    p(" %7s \n" % "Total")
+    p(" %4s " % "Ox")
+
+    Sum = sum(t)
+    Avg = sum(i * x for i, x in enumerate(t)) / Sum
+    for i in xrange(0, 10):
+        p((" % 4d         " % t[i]) if i == 9 else (" % 4d " % t[i]))
+        if not do:
+            X[0].append(t[i])
+
+    p(" %6d \n" % Sum)
+    return Sum, Avg
+
+def ajust(path, t):
+    p("Ajust file [%s].\n" % path)
+    Sum, Avg = sub(map(float, t))
+    P = Avg / float(Sum)
+    p("Moyenne = %g\n" % Avg)
+    p("Probabilite = %g\n" % P)
+    sub(t, True)
+    p("  %4s " % "Tx")
+    tt = 0
+    for i in xrange(0, 9):
+        t = round(100 * bc(100 ,i) * (P ** i) * ((1 - P) ** (100 - i)) * 10) / 10
+        tt += t
+        p(" %4s " % t)
+        X[1].append(t)
+
+    p(" %3.g  %% %4d\n" % ( Sum - tt, 100))
+    X[1].append(float("%3.g" % (Sum - tt)))
+    #p(" %.1f  %% %4d\n" % ( Sum - tt, 100))
+    #X[1].append(Sum - tt)
+
+def lol(X):
+    F = []
+    start = 0
+    end = start + 1
+    assert len(X[0]) == len(X[1])
+    while end != len(X[0]):
+        if sum(X[0][start:end]) >= 8:
+            F.append((start, end))
+            start = end
+            end = start + 1
+        else:
+            end += 1
+
+    if start != end:
+        F[-1] = (F[-1][0], end)
+
+    print
+    p("\n %4s   " % "x")
+    for i in xrange(0, 10):
+        p(("% 4d et plus " % i) if i == 9 else (" % 4d " % i))
+    print
+    p("   Ox  ")
+    for i in F:
+        x = sum(X[0][i[0]:i[1]])
+        p((" % 5d         " % x) if i == 9 else (" % 5d " % x))
+    print
+    p("   Tx   ")
+    for i in F:
+        #x = p("%.1f\t" % sum(X[1][i[0]:i[1]])),
+        x = sum(X[1][i[0]:i[1]])
+        p((" % 4.1f         " % x) if i == 9 else (" % 4.1f " % x))
+    print
+
+
+
+if __name__ == '__main__':
+    t = []
+    for line in fileinput.input():
+        if len(line.split()) :
+            _, x = map(int, line.split())
+            t.append(x)
+    ajust("test", t)
+    lol(X)

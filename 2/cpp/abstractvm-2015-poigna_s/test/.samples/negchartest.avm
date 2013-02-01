@@ -1,0 +1,38 @@
+push int8(-120)
+push int8(4)
+add
+dump
+pop
+
+push int8(-120)
+push int8(4)
+sub
+dump
+pop
+
+push int8(-12)
+push int8(4)
+mul
+dump
+pop
+
+push int8(-120)
+push int8(4)
+div
+dump
+pop
+
+push int8(-120)
+push int8(4)
+mod
+dump
+pop
+
+exit
+
+;-116
+;-124
+;-48
+;-30
+;0
+ ;0

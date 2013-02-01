@@ -1,0 +1,6 @@
+push int32(-123236532)
+push int32(12323763)
+mul
+dump
+exit
+ ;1

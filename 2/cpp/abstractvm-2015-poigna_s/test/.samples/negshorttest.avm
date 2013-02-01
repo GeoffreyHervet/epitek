@@ -1,0 +1,38 @@
+push int16(1234)
+push int16(-4)
+add
+dump
+pop
+
+push int16(-1234)
+push int16(-4)
+sub
+dump
+pop
+
+push int16(1234)
+push int16(-4)
+mul
+dump
+pop
+
+push int16(-1234)
+push int16(4)
+div
+dump
+pop
+
+push int16(-1234)
+push int16(5)
+mod
+dump
+pop
+
+exit
+
+;1230
+;-1230
+;-4936
+;-308
+;-4
+ ;0
